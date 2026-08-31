@@ -1,41 +1,111 @@
-# aiclab · end-to-end encrypted chat
+<div align="center">
 
-A **serverless** chat app: static frontend on **GitHub Pages**, **Firebase Realtime
-Database** as the datastore (raw `fetch` — no SDK, no backend), and **end-to-end
-encryption** so the database only ever holds ciphertext.
+<img src="assets/favicon.svg" width="104" height="104" alt="Umbra" />
 
-Text + images. You log in with a **UUID** (public identity) and a **secret key**
-(private passphrase); it shows your encrypted history and lets you chat live.
+# Umbra
+
+**The datastore only ever sees ciphertext.**
+
+Serverless, end-to-end encrypted chat. A static frontend, no backend, no SDK, no build step —
+your keys are derived in the browser and never leave the device.
+
+<br />
+
+![vanilla JS](https://img.shields.io/badge/vanilla_JS-ES2020-f7df1e?style=flat-square&logo=javascript&logoColor=f7df1e&labelColor=0e131d)
+![TweetNaCl](https://img.shields.io/badge/TweetNaCl-X25519_·_Poly1305-a48bff?style=flat-square&labelColor=0e131d)
+![WebCrypto](https://img.shields.io/badge/WebCrypto-PBKDF2_250k-4de0d6?style=flat-square&labelColor=0e131d)
+![Firebase](https://img.shields.io/badge/Firebase-Realtime_DB-ffcf6b?style=flat-square&logo=firebase&logoColor=ffcf6b&labelColor=0e131d)
+![GitHub Pages](https://img.shields.io/badge/GitHub_Pages-deployed-43e5a0?style=flat-square&logo=githubpages&logoColor=43e5a0&labelColor=0e131d)
+![dependencies](https://img.shields.io/badge/dependencies-0-5b8cff?style=flat-square&labelColor=0e131d)
+![backend](https://img.shields.io/badge/backend-none-ff6b81?style=flat-square&labelColor=0e131d)
+
+<br />
+
+**[Live demo](https://kvsovanreach.github.io/demo-chat/)** ·
+[How it works](#how-it-works) ·
+[Security model](#security-model) ·
+[Setup](#setup) ·
+[Threat model](#what-is-and-isnt-protected)
+
+<br />
+
+<img src="assets/screenshot.png" width="880" alt="Umbra login and chat screens" />
+
+</div>
 
 ---
 
-## Security model (hardened)
+## Why "Umbra"
 
-- **TweetNaCl `box`** = X25519 ECDH + XSalsa20-Poly1305 (authenticated public-key encryption).
-- **Key derivation: PBKDF2-SHA256, 250 000 iterations, salted with your UUID.**
-  A weak passphrase is now hundreds of thousands of times more expensive to
-  brute-force, and the per-UUID salt kills rainbow tables.
-- You publish only your **public key** to `/users/{uuid}`. Peers derive the same
-  shared key via ECDH; Firebase sees only `{from, to, ts, nonce, ciphertext}`.
-- **Conversation IDs are a hash of both UUIDs**, so database paths can't be
-  guessed or enumerated without already knowing both participants.
-- Message **type + mime are encrypted** too (sealed JSON envelopes).
-- **Anonymous Firebase Auth** gates every request; **rules forbid enumeration,
-  make public keys write-once (anti key-substitution), and messages append-only.**
+The *umbra* is the innermost part of a shadow — the region where the light source is
+blocked **completely**, not merely dimmed. That is the design goal here. The database is
+not trusted-but-monitored; it is in total shadow. It holds `{from, to, ts, nonce, ciphertext}`
+and cannot read a single message, because the key that would open them never reaches it.
+
+---
+
+## How it works
+
+Identity is **derived, never stored**. Your UUID plus your passphrase produce an X25519
+keypair through PBKDF2; the same pair reappears on any device from the same two inputs, and
+nothing sensitive is ever persisted or transmitted.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Alice · browser
+    participant DB as Firebase RTDB
+    participant B as Bob · browser
+
+    Note over A,B: PBKDF2-SHA256(secret, salt = uuid, 250k) → X25519 keypair
+    A->>DB: PUT /users/{uuidA} · publicKey only
+    B->>DB: PUT /users/{uuidB} · publicKey only
+    A->>DB: GET /users/{uuidB}
+    DB-->>A: Bob's public key
+    Note over A: ECDH → shared secret (never transmitted)
+    A->>DB: POST /conversations/{hash(uuidA,uuidB)}/messages
+    Note right of A: { from, to, ts, nonce, ciphertext }
+    DB-->>B: EventSource live stream
+    Note over B: box.open() → plaintext
+    Note over DB: holds ciphertext, and only ciphertext
+```
+
+Message **type and mime are sealed inside** the ciphertext as a JSON envelope, so the store
+cannot even distinguish an image from a line of text.
+
+---
+
+## Security model
+
+| Layer | Mechanism |
+|---|---|
+| Cipher | XSalsa20-Poly1305 — authenticated encryption |
+| Key exchange | X25519 ECDH via TweetNaCl `box` |
+| Key derivation | PBKDF2-SHA256, **250 000 iterations**, salted per-UUID |
+| Conversation paths | `hash(sorted(uuidA, uuidB))` truncated to 40 hex — unguessable, unenumerable |
+| Identity binding | Public keys are **write-once**, blocking key substitution |
+| Verification | Signal-style 12-group safety number + TOFU key-change alert |
+| Transport | HTTPS, required — WebCrypto refuses to run outside a secure context |
+
+The per-UUID salt means an attacker must attack each identity separately: no rainbow tables,
+and a weak passphrase costs 250 000× more to grind than a bare hash would.
 
 ---
 
 ## Setup
 
-### 1. Realtime Database
-Firebase Console → **Build → Realtime Database → Create** → start in locked mode.
+### 1 · Realtime Database
+
+Firebase Console → **Build → Realtime Database → Create** → start in **locked mode**.
 Copy the URL, e.g. `https://your-project-default-rtdb.firebaseio.com`.
 
-### 2. Enable Anonymous Auth
+### 2 · Anonymous Auth
+
 **Build → Authentication → Sign-in method → Anonymous → Enable.**
 
-### 3. Hardened database rules
-**Realtime Database → Rules**, paste and Publish:
+### 3 · Database rules
+
+**Realtime Database → Rules** → paste and **Publish**:
 
 ```json
 {
@@ -66,16 +136,15 @@ Copy the URL, e.g. `https://your-project-default-rtdb.firebaseio.com`.
 }
 ```
 
-What these enforce:
-- **No enumeration** — top-level read/write denied; you can only read a user or
-  conversation if you already know its exact (hashed) key.
-- **Write-once public keys** — once a UUID publishes a key it can't be changed,
-  which blocks man-in-the-middle key substitution.
-- **Append-only, immutable messages** — existing messages can't be edited/deleted.
-- **Shape + size validation** — no arbitrary or oversized junk writes.
-- **Auth required** — disable the Anonymous provider to instantly cut all access.
+These enforce: **no enumeration** (the root is denied; you must already know an exact hashed
+key), **write-once public keys** (no MITM key substitution), **append-only immutable
+messages**, **shape and size validation**, and **auth on every request** — so disabling the
+Anonymous provider is an instant kill switch.
 
-### 4. Point the app at your project — edit `js/config.js`
+### 4 · Point the app at your project
+
+Edit [`js/config.js`](js/config.js):
+
 ```js
 window.FIREBASE_CONFIG = {
   databaseURL: 'https://your-project-default-rtdb.firebaseio.com',
@@ -83,107 +152,116 @@ window.FIREBASE_CONFIG = {
 };
 ```
 
-Both values are **public by design** — they ship in the JS and anyone can read them
-out of the network tab. A Firebase Web API key is an identifier, not a credential:
-it can't read your database or bypass rules. Security comes from the rules above
-plus the E2E crypto, never from hiding these.
+> **Both values are public by design.** They ship in the JS and anyone can read them from the
+> network tab. A Firebase Web API key is an *identifier, not a credential* — it cannot read the
+> database or bypass a rule. Security comes from the rules above plus the encryption, never
+> from hiding these. Open the browser console for the long version.
 
-What it *does* allow is unlimited anonymous token minting, so:
-- **Restrict the key** — Cloud Console → APIs & Services → Credentials → your
-  browser key → *HTTP referrers* → `https://<you>.github.io/*`. A speed bump
-  (referrers are forgeable), not a wall.
-- **Stay on the Spark plan**, or set a budget alert on Blaze — an open sign-up
-  endpoint plus append-only storage is a cost surface.
-- **Kill switch** — disabling the Anonymous provider cuts all access instantly.
+What the key *does* allow is unlimited anonymous token minting, so:
 
-### 5. Deploy to GitHub Pages
+- **Restrict it** — Cloud Console → Credentials → your browser key → *Websites* → add
+  `https://<you>.github.io/*` and `http://localhost:8000/*`. Keep **Identity Toolkit API**
+  allowed or sign-in breaks. A speed bump, not a wall: referrers are forgeable.
+- **Stay on Spark**, or set a budget alert on Blaze.
+- **Add [App Check](https://firebase.google.com/docs/app-check)** if this outgrows a demo — it
+  is the only real answer to a forgeable referrer.
+
+### 5 · Run locally
+
+WebCrypto needs a secure context, so `file://` will not work:
+
 ```bash
-git init && git add . && git commit -m "aiclab encrypted chat"
-git branch -M main
-git remote add origin https://github.com/<you>/<repo>.git
+python3 -m http.server 8000
+# → http://localhost:8000
+```
+
+### 6 · Deploy
+
+```bash
 git push -u origin main
 ```
-**Settings → Pages → Deploy from branch → main / root** → live at
-`https://<you>.github.io/<repo>/`. (HTTPS is required — WebCrypto/PBKDF2 needs a
-secure context, which GitHub Pages provides.)
+
+**Settings → Pages → Deploy from a branch → `main` / `root`.** HTTPS is automatic.
 
 ---
 
 ## Usage
-1. Hit **gen** for your UUID — don't type a name. **Never use a guessable id like
-   `alice`.** The conversation path is a hash of both UUIDs, so a guessable pair
-   is the one thing standing between a stranger and your (encrypted) history —
-   see *Why the UUID matters* below. `gen` emits a full 122-bit v4 UUID.
-2. Add a **secret key** (long, unique) and the **peer's UUID** → **Establish
-   secure channel**. Your key fingerprint renders live as you type.
-3. The peer must open the app once (their UUID + secret) to publish their key.
-   Expect a "peer hasn't joined" error on the very first connect — that attempt
-   still publishes *your* key. Have them connect, then retry.
-4. **Verify once.** Tap the peer's identicon in the header and compare the safety
-   number out-of-band (call, in person). This is what catches a substituted key.
-5. Chat. Everything is encrypted in-browser; click any bubble to peek its ciphertext.
-6. Same UUID + same secret = same identity on any device (keys are derived, not
-   stored). Nothing is recoverable if you lose either — **keep your UUID**, since
-   a 36-char id is no longer something you'll memorise.
+
+1. Press **gen** for your UUID — **never type a guessable name like `alice`.** Conversation
+   paths hash *both* UUIDs, so a guessable pair is the one thing between a stranger and your
+   encrypted history. See [Why the UUID matters](#why-the-uuid-matters).
+2. Add a long, unique **secret key** and your **peer's UUID** → **Establish secure channel**.
+   Your key fingerprint renders live as you type.
+3. Your peer opens the app once to publish their key. The first connect fails with
+   *"peer hasn't joined"* — expected; it still published *your* key. Have them connect, then retry.
+4. **Verify once.** Tap the peer's identicon and compare the safety number over a call or in
+   person. This is what catches a substituted key.
+5. Chat. Click any bubble to reveal its raw ciphertext.
+
+> Same UUID + same secret = same identity anywhere. Nothing is recoverable if you lose
+> either — **keep your UUID**, since a 36-character id is not something you will memorise.
 
 ---
 
-## What's protected vs. what isn't (honest)
+## What is (and isn't) protected
 
-**Protected**
-- Message content — infeasible to decrypt without the key (and PBKDF2 makes weak
-  passphrases far harder to crack).
-- Key substitution / MITM — public keys are write-once, so an *established*
-  identity's key can never be swapped. (Claiming an unused UUID is a separate
-  problem — see *Identity squatting* below.)
-- Bulk scraping / enumeration — blocked by rules + hashed paths.
-- Tampering — messages are immutable; each is authenticated (Poly1305).
-- Network sniffing — GitHub Pages is HTTPS.
-- Your secret — never stored or transmitted; derived in-browser each session.
+<table>
+<tr><td width="50%" valign="top">
 
-**Still exposed / limitations**
-- **Metadata** — a party who already knows both UUIDs can compute the conversation
-  id, read (undecryptable) ciphertext, and see timestamps/sizes. True metadata
-  privacy needs a backend.
-- **Identity squatting** — public keys are write-once, which blocks substitution but
-  also means an *unclaimed* UUID can be taken. If someone publishes a key at your
-  UUID before you do, you can never claim it, and a peer who looks you up gets
-  **their** key and encrypts to them. Only unguessable UUIDs prevent this, and only
-  safety-number verification detects it.
-- **No forward secrecy** — keys are static; a leaked secret exposes past messages.
-- **Spam by known participants** — anyone authed who knows a conversation id could
-  append messages; content stays encrypted, but you can't cryptographically prove
-  "sender = this UUID" without a backend. Messages are append-only, so injected
-  junk renders as "unable to decrypt" permanently — it cannot be deleted.
-- **Anyone can mint an auth token** — the Web API key is public by design, and the
-  Anonymous provider is open to the world. Auth proves nothing about *who* is
-  asking; it only enables the rules. Add App Check if this outgrows a demo.
-- **Passphrase strength still matters** — PBKDF2 raises the cost, it doesn't make a
-  trivial passphrase safe. Use a long, unique one.
+**✅ Protected**
+
+- **Message content** — infeasible without the key
+- **Key substitution** — public keys are write-once, so an *established* identity's key can never be swapped
+- **Enumeration** — blocked by rules and hashed paths
+- **Tampering** — messages are immutable and Poly1305-authenticated
+- **Sniffing** — HTTPS end to end
+- **Your secret** — never stored, never transmitted
+
+</td><td width="50%" valign="top">
+
+**⚠️ Still exposed**
+
+- **Metadata** — anyone who knows both UUIDs can compute the path and see timestamps and sizes
+- **Identity squatting** — an *unclaimed* UUID can be taken; your peer would then encrypt to the squatter
+- **No forward secrecy** — keys are static; a leaked secret exposes past messages
+- **Spam** — any authed client that can compute a path may append; injected junk is permanent
+- **Open sign-up** — auth proves nothing about *who* is asking
+
+</td></tr>
+</table>
 
 ### Why the UUID matters
 
-Every risk above is gated on UUID guessability. A generated UUID is 122 bits, and a
-conversation id hashes **both**, so an attacker needs ~244 bits to compute a path —
-not brute-forceable. Type `alice` and all of it collapses to a dictionary guess.
+Every residual risk above is gated on UUID guessability. A generated UUID carries **122 bits**
+of entropy, and a conversation id hashes **both** — roughly 244 bits to compute a path, which
+is not brute-forceable. Type `alice` and all of it collapses to a dictionary guess.
 
-This is only as strong as the weaker of the two ids: if your peer uses `bob`, your
-conversation is exposed regardless of how good your own UUID is. Tell them to hit
-`gen` too.
+It is only as strong as the *weaker* of the two ids: if your peer uses `bob`, your conversation
+is exposed no matter how good your own UUID is. Tell them to press **gen** too.
 
-Good for private, low-stakes chat and learning real E2E crypto. Not a Signal
-replacement (which adds forward secrecy, verified identities, and a trusted server).
+Good for private, low-stakes chat and for learning real E2E cryptography. **Not** a Signal
+replacement — that adds forward secrecy, verified identities, and a trusted server.
 
 ---
 
-## Files
+## Project layout
+
 ```
-index.html      login + chat UI (crypto-terminal design, JetBrains Mono)
-css/style.css   styling
-js/config.js    your Firebase URL + API key
-js/crypto.js    E2E crypto — PBKDF2 key derivation, nacl.box, hashed conv ids
-js/auth.js      anonymous Firebase Auth (REST) + token refresh
-js/firebase.js  raw REST client + live EventSource stream (auto-reconnect)
-js/app.js       UI wiring, identicons, ciphertext peek, scramble reveal
-lib/            vendored TweetNaCl + util (self-contained)
+index.html          login + chat UI, single document
+css/style.css       crypto-terminal design system · fully responsive
+js/config.js        Firebase URL + API key (public by design)
+js/crypto.js        PBKDF2 derivation, nacl.box, hashed conv ids, safety numbers
+js/auth.js          anonymous Firebase Auth over REST + token refresh
+js/firebase.js      raw REST client + live EventSource stream, auto-reconnect
+js/app.js           UI wiring, identicons, ciphertext peek, scramble reveal
+lib/                vendored TweetNaCl + util — the only dependencies, both offline
+assets/             icon set and screenshots
 ```
+
+No package manager, no bundler, no transpiler. Clone it and open it.
+
+---
+
+<div align="center">
+<sub>Built with TweetNaCl · deployed on GitHub Pages · the server still sees nothing</sub>
+</div>

@@ -11,7 +11,16 @@
     on purpose. Open the console for why that isn't the win you think it is.
     tl;dr: the server only ever sees ciphertext. Feature, not bug. :)
   -->
-  <title>aiclab · encrypted chat</title>
+  <title>Umbra · end-to-end encrypted chat</title>
+  <meta name="description" content="Serverless end-to-end encrypted chat. X25519 + XSalsa20-Poly1305 in the browser; the datastore only ever holds ciphertext." />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48" />
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+  <meta property="og:title" content="Umbra · end-to-end encrypted chat" />
+  <meta property="og:description" content="The server sees only ciphertext. X25519 ECDH + XSalsa20-Poly1305, keys derived in-browser, no backend." />
+  <meta property="og:image" content="https://kvsovanreach.github.io/demo-chat/assets/icon-512.png" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -22,7 +31,7 @@
   <div id="login" class="login-wrap">
     <form class="login-card" id="loginForm" autocomplete="off">
       <div class="brand-row">
-        <div class="brand"><span class="lockmark">🔐</span><b>aiclab<span>::</span>chat</b></div>
+        <div class="brand"><img class="lockmark" src="assets/favicon.svg" alt="" width="30" height="30" /><b>umbra<span>::</span>e2e</b></div>
         <div class="proto"><span>X25519</span><span>POLY1305</span><span>E2E</span></div>
       </div>
       <div class="tagline">// peer-to-peer encryption · zero-knowledge datastore · no backend</div>

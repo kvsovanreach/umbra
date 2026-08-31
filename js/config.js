@@ -19,7 +19,7 @@ window.FIREBASE_CONFIG = {
   const big = 'font:700 20px ui-monospace,SFMono-Regular,monospace;color:#4de0d6;text-shadow:0 0 12px rgba(77,224,214,.45)';
   const st = (c, w) => `color:${c};font:${w || 400} 12px ui-monospace,SFMono-Regular,monospace;line-height:1.65`;
 
-  console.log('%c🔐 aiclab::chat', big);
+  console.log('%c◐ umbra::e2e', big);
   console.log('%cYou found the API key. Congratulations — go ahead and take it.\nScreenshot it. Post it. We\'ll wait.', st('#ffcf6b', 700));
   console.log(
     '%cIt is an identifier, not a credential. It cannot read the database, cannot\n' +

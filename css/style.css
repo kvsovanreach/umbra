@@ -63,8 +63,8 @@ body::before {
 .brand-row { display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand .lockmark {
-  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
-  background: var(--grad); color: #06202b; font-size: 15px; box-shadow: 0 0 20px rgba(77,224,214,.35);
+  width: 30px; height: 30px; border-radius: 8px; display: block; flex: none;
+  box-shadow: 0 0 22px rgba(77,224,214,.28);
 }
 .brand b { font-size: 15px; letter-spacing: .5px; }
 .brand b span { color: var(--cyan); }

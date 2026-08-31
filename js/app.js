@@ -1,4 +1,4 @@
-/* aiclab encrypted chat — UI + wiring, crypto-terminal edition.
+/* Umbra — UI + wiring, crypto-terminal edition.
  * Innovations: live key-fingerprint identicons, connect handshake, click-to-peek
  * ciphertext, and a scramble-decrypt reveal for incoming messages.
  */

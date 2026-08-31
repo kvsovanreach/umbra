@@ -8,6 +8,10 @@
  *
  * Conversation IDs are a HASH of the two UUIDs, so the database path can't be
  * guessed or enumerated without already knowing both participants.
+ *
+ * NOTE: the 'aiclab::' string prefixes below are load-bearing — they are mixed
+ * into the PBKDF2 salt, the conversation id and the safety number. Renaming them
+ * would regenerate every keypair and orphan every existing conversation.
  */
 window.CryptoBox = (function () {
   const util = nacl.util;
