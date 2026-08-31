@@ -21,7 +21,7 @@ your keys are derived in the browser and never leave the device.
 
 <br />
 
-**[Live demo](https://kvsovanreach.github.io/demo-chat/)** ·
+**[Live demo](https://kvsovanreach.github.io/umbra/)** ·
 [How it works](#how-it-works) ·
 [Security model](#security-model) ·
 [Setup](#setup) ·

@@ -46,5 +46,5 @@ window.FIREBASE_CONFIG = {
   } catch (e) { /* nacl not loaded — no challenge, no harm */ }
 
   console.log('%cOpen it and you\'ve broken Curve25519. Please publish a paper, don\'t DM me. 🏆', st('#a48bff', 700));
-  console.log('%csource: https://github.com/kvsovanreach/demo-chat', st('#4a5468'));
+  console.log('%csource: https://github.com/kvsovanreach/umbra', st('#4a5468'));
 })();
