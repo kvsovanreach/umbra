@@ -208,7 +208,10 @@
   });
 
   // ---------- unlock (returning session) ----------
-  function showUnlock(id) {
+  function showUnlock(id, reason) {
+    const lr = $('lockReason');
+    if (reason) { lr.textContent = reason; lr.classList.remove('hidden'); }
+    else { lr.textContent = ''; lr.classList.add('hidden'); }
     $('unlockUuid').textContent = id.uuid; $('unlockUuid').title = id.uuid;
     $('unlockPeer').textContent = id.peer; $('unlockPeer').title = id.peer;
     $('unlockSecret').value = '';
@@ -253,6 +256,7 @@
     renderPeerAlert();
     clearInterval(S.peerWatch);
     S.peerWatch = setInterval(refreshPeerState, 90000);
+    armIdle();
     $('statusDot').classList.add('on');
     S.msgs.clear(); S.loaded = false; S.peerRead = 0;
     $('messages').innerHTML = '<div class="sys">◇ loading encrypted history…</div>';
@@ -473,22 +477,72 @@
     });
   }
 
+  // ---------- auto-lock ----------
+  // Locking drops the keypair from memory; the identity stays remembered, so
+  // resuming costs one passphrase. Timers alone are not enough: background tabs
+  // throttle them and sleep stops them, so elapsed time is re-checked on return.
+  const IDLE_MS = 30 * 60 * 1000;   // lock after this much inactivity
+  const WARN_MS = 60 * 1000;        // start counting down this long before
+  const IDLE_MSG = 'locked after 30 minutes of inactivity — enter your secret to resume';
+  let idleTimer = null, warnTimer = null, ticker = null, lastActive = 0;
+
+  const inChat = () => !VIEWS.chat.classList.contains('hidden');
+
+  function disarmIdle() {
+    clearTimeout(idleTimer); clearTimeout(warnTimer); clearInterval(ticker);
+    idleTimer = warnTimer = ticker = null;
+    $('idleWarn').classList.add('hidden'); $('idleWarn').innerHTML = '';
+  }
+  function armIdle() {
+    disarmIdle();
+    lastActive = Date.now();
+    warnTimer = setTimeout(showIdleWarning, IDLE_MS - WARN_MS);
+    idleTimer = setTimeout(() => lockSession(IDLE_MSG), IDLE_MS);
+  }
+  function showIdleWarning() {
+    const el = $('idleWarn');
+    const paint = () => {
+      const left = Math.max(0, Math.ceil((lastActive + IDLE_MS - Date.now()) / 1000));
+      el.innerHTML = `<span>⏻</span><span>locking in <b>${left}s</b> — your keys will be dropped from memory. move or type to stay unlocked.</span>`;
+    };
+    paint();
+    el.classList.remove('hidden');
+    clearInterval(ticker); ticker = setInterval(paint, 1000);
+  }
+  function noteActivity() {
+    if (!inChat()) return;
+    if (Date.now() - lastActive < 5000) return; // throttle; the timer is already fresh
+    armIdle();
+  }
+  ['pointerdown', 'keydown', 'wheel', 'touchstart', 'input'].forEach((ev) =>
+    document.addEventListener(ev, noteActivity, { passive: true }));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !inChat()) return;
+    const idle = Date.now() - lastActive;
+    if (idle >= IDLE_MS) lockSession(IDLE_MSG);
+    else if (idle >= IDLE_MS - WARN_MS) showIdleWarning();
+  });
+
   // ---------- leave (lock the session) ----------
   // Drops every key from memory. The identity is kept so you land on the unlock
   // card rather than retyping two UUIDs; "use a different identity" clears it.
-  $('logout').addEventListener('click', () => {
-    if (S.es) S.es.close();
+  function lockSession(reason) {
+    if (S.es) { S.es.close(); S.es = null; }
     if (S.auth) S.auth.stop();
     clearInterval(S.peerWatch); S.peerWatch = null;
+    disarmIdle();
     S.peerState = 'active'; $('peerAlert').classList.add('hidden'); $('peerAlert').innerHTML = '';
     S.secret = null; S.keypair = null; S.peerPub = null;
     S.msgs.clear(); S.view.clear(); S.peeking.clear();
     $('messages').innerHTML = '';
+    $('msgInput').value = ''; clearPreview();
     $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL';
     $('handshake').innerHTML = ''; $('secret').value = ''; refreshMyKey();
     const id = savedIdentity();
-    if (id) showUnlock(id); else show('login');
-  });
+    if (id) showUnlock(id, reason);
+    else { show('login'); if (reason) $('loginErr').textContent = reason; }
+  }
+  $('logout').addEventListener('click', () => lockSession(null));
 
   // ---------- boot ----------
   // A refresh lands here: identity is remembered, the secret never is, so all we

@@ -79,6 +79,7 @@
         <div class="proto"><span>LOCKED</span></div>
       </div>
       <div class="tagline">// session locked · your secret is never stored, only re-derived</div>
+      <div class="lock-reason hidden" id="lockReason"></div>
 
       <div class="fingerprint">
         <canvas class="identicon" id="unlockIdenticon" width="9" height="9"></canvas>
@@ -139,6 +140,7 @@
     </div>
 
     <div class="peer-alert hidden" id="peerAlert"></div>
+    <div class="idle-warn hidden" id="idleWarn"></div>
     <div class="messages" id="messages"></div>
 
     <div class="typing hidden" id="typing"><span class="dots"><i></i><i></i><i></i></span><em id="typingName">peer</em> is typing</div>

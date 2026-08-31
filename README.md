@@ -298,6 +298,13 @@ is a valid login — **as them** — because a UUID plus its secret *is* that id
 makes which one unmistakable. A wrong passphrase for a UUID that already holds a key is
 refused outright, before anything is written.
 
+**Auto-lock.** After **30 minutes without interaction** the session locks itself: the keypair
+is dropped from memory, decrypted messages are cleared from the DOM, and the live stream is
+closed. A countdown appears for the last minute, and any input cancels it. Because background
+tabs throttle timers and sleeping a laptop stops them, elapsed time is re-checked whenever the
+tab regains focus — so waking after an hour locks immediately rather than granting extra time.
+The window is `IDLE_MS` in `js/app.js`.
+
 **Refreshing the page** shows a lock screen asking only for your passphrase — the two UUIDs
 and the database URL are remembered, the secret never is. Your key fingerprint appears as you
 type, so a mistyped passphrase is visible *before* you connect. **leave** locks the session the
