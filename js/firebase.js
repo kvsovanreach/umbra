@@ -30,6 +30,24 @@ window.FireDB = function (databaseURL, tokenProvider) {
       return u && u.publicKey ? u.publicKey : null;
     },
 
+    // Admin-controlled allowlist. Clients may read their own entry but can never
+    // write it (rules deny; the Console and Admin SDK bypass rules). This is a UX
+    // nicety only — the real gate is the .write rule on /users/{uuid}, so a client
+    // that skips or fakes this check still cannot publish a key.
+    //   active     → approved
+    //   disabled   → explicitly turned off
+    //   unlisted   → no entry yet (never approved)
+    //   unreadable → allowlist rules not deployed; defer to the write attempt
+    getStatus: async (uuid) => {
+      try {
+        const a = await _req('GET', `allowlist/${uuid}`);
+        if (!a) return { state: 'unlisted', label: null };
+        return { state: a.status === 'active' ? 'active' : (a.status || 'disabled'), label: a.label || null };
+      } catch (e) {
+        return { state: 'unreadable', label: null };
+      }
+    },
+
     sendMessage: (cid, msg) => _req('POST', `conversations/${cid}/messages`, msg),
     setTyping: (cid, uuid, ts) => _req('PUT', `conversations/${cid}/typing/${uuid}`, ts),
     setRead: (cid, uuid, ts) => _req('PUT', `conversations/${cid}/read/${uuid}`, ts),

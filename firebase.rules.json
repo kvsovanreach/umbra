@@ -1,0 +1,45 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "allowlist": {
+      "$uuid": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+
+    "users": {
+      "$uuid": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active' && (!data.exists() || newData.child('publicKey').val() === data.child('publicKey').val())",
+        ".validate": "newData.hasChildren(['publicKey','updated']) && newData.child('publicKey').isString() && newData.child('publicKey').val().length <= 64"
+      }
+    },
+
+    "conversations": {
+      "$cid": {
+        ".read": "auth != null",
+        "messages": {
+          "$mid": {
+            ".write": "auth != null && !data.exists() && root.child('allowlist').child(newData.child('from').val()).child('status').val() === 'active'",
+            ".validate": "newData.hasChildren(['from','to','ts','n','c']) && newData.child('n').isString() && newData.child('c').isString() && newData.child('c').val().length <= 400000"
+          }
+        },
+        "typing": {
+          "$uuid": {
+            ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active'",
+            ".validate": "newData.isNumber()"
+          }
+        },
+        "read": {
+          "$uuid": {
+            ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active'",
+            ".validate": "newData.isNumber()"
+          }
+        }
+      }
+    }
+  }
+}

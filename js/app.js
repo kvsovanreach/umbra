@@ -99,6 +99,10 @@
     if (uuid === peer) { err.textContent = 'your uuid and peer uuid must differ'; return; }
 
     $('connect').disabled = true; $('connect').textContent = 'ESTABLISHING…';
+    const fail = (msg) => {
+      err.textContent = msg;
+      $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL';
+    };
     try {
       S.uuid = uuid; S.secret = secret; S.peer = peer;
       await hsStep('deriving keypair · PBKDF2-250k · X25519…', 340);
@@ -111,15 +115,31 @@
       }
       S.db = FireDB(dburl, () => S.auth.token());
 
+      // access gate — the DB rule is the real enforcement, this is for a clear message
+      await hsStep('checking account access…');
+      const acct = await S.db.getStatus(uuid);
+      // default-deny: anything that isn't an explicit 'active' is refused, so a
+      // future status value ('pending', 'suspended', …) fails closed, not open.
+      if (acct.state !== 'active' && acct.state !== 'unreadable') {
+        return fail(
+          acct.state === 'disabled' ? 'this uuid has been disabled — contact the operator to re-enable it'
+          : acct.state === 'unlisted' ? 'this uuid is not enabled for access — ask the operator to activate it'
+          : `this uuid is not active (status: ${acct.state})`);
+      }
+
       await hsStep(`publishing public key → /users/${uuid}…`);
-      await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair));
+      try {
+        await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair));
+      } catch (ex) {
+        if (/\b401\b|permission denied/i.test(ex.message)) {
+          return fail('key publish refused — either this uuid is not enabled, or it already holds a different key (wrong secret?)');
+        }
+        throw ex;
+      }
 
       await hsStep('fetching peer public key…');
       S.peerPub = await S.db.getPublicKey(peer);
-      if (!S.peerPub) {
-        err.textContent = `peer "${peer}" hasn't joined — they must open the app once to publish their key`;
-        $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL'; return;
-      }
+      if (!S.peerPub) return fail(`peer "${peer}" hasn't joined — they must open the app once to publish their key`);
       await hsStep('ECDH shared secret established', 340);
 
       S.cid = CryptoBox.conversationId(uuid, peer);

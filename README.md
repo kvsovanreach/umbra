@@ -84,6 +84,7 @@ cannot even distinguish an image from a line of text.
 | Key derivation | PBKDF2-SHA256, **250 000 iterations**, salted per-UUID |
 | Conversation paths | `hash(sorted(uuidA, uuidB))` truncated to 40 hex — unguessable, unenumerable |
 | Identity binding | Public keys are **write-once**, blocking key substitution |
+| Membership | Operator allowlist — a UUID cannot publish a key until approved by hand |
 | Verification | Signal-style 12-group safety number + TOFU key-change alert |
 | Transport | HTTPS, required — WebCrypto refuses to run outside a secure context |
 
@@ -105,31 +106,50 @@ Copy the URL, e.g. `https://your-project-default-rtdb.firebaseio.com`.
 
 ### 3 · Database rules
 
-**Realtime Database → Rules** → paste and **Publish**:
+**Realtime Database → Rules** → paste the contents of [`firebase.rules.json`](firebase.rules.json) and **Publish**:
 
 ```json
 {
   "rules": {
     ".read": false,
     ".write": false,
+
+    "allowlist": {
+      "$uuid": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+
     "users": {
       "$uuid": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() || newData.child('publicKey').val() === data.child('publicKey').val())",
+        ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active' && (!data.exists() || newData.child('publicKey').val() === data.child('publicKey').val())",
         ".validate": "newData.hasChildren(['publicKey','updated']) && newData.child('publicKey').isString() && newData.child('publicKey').val().length <= 64"
       }
     },
+
     "conversations": {
       "$cid": {
         ".read": "auth != null",
         "messages": {
           "$mid": {
-            ".write": "auth != null && !data.exists()",
+            ".write": "auth != null && !data.exists() && root.child('allowlist').child(newData.child('from').val()).child('status').val() === 'active'",
             ".validate": "newData.hasChildren(['from','to','ts','n','c']) && newData.child('n').isString() && newData.child('c').isString() && newData.child('c').val().length <= 400000"
           }
         },
-        "typing": { "$uuid": { ".write": "auth != null", ".validate": "newData.isNumber()" } },
-        "read":   { "$uuid": { ".write": "auth != null", ".validate": "newData.isNumber()" } }
+        "typing": {
+          "$uuid": {
+            ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active'",
+            ".validate": "newData.isNumber()"
+          }
+        },
+        "read": {
+          "$uuid": {
+            ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active'",
+            ".validate": "newData.isNumber()"
+          }
+        }
       }
     }
   }
@@ -138,8 +158,53 @@ Copy the URL, e.g. `https://your-project-default-rtdb.firebaseio.com`.
 
 These enforce: **no enumeration** (the root is denied; you must already know an exact hashed
 key), **write-once public keys** (no MITM key substitution), **append-only immutable
-messages**, **shape and size validation**, and **auth on every request** — so disabling the
-Anonymous provider is an instant kill switch.
+messages**, **shape and size validation**, **auth on every request** — so disabling the
+Anonymous provider is an instant kill switch — and an **operator allowlist**, below.
+
+### 3b · Approving users
+
+Anonymous auth lets *anyone* obtain a token, so the rules gate the one action that matters:
+publishing a public key. A UUID cannot establish a channel until you approve it by hand.
+
+The allowlist lives at its own path with `".write": false`, so **no client can ever edit it** —
+not even its own entry. The Firebase Console and Admin SDK bypass rules, so that is where you
+manage it. Putting the flag under `/users/{uuid}` would not work: clients write that path, and
+a disabled user could simply mark themselves active.
+
+To approve someone, **Realtime Database → Data**, add under `allowlist`:
+
+```json
+{
+  "allowlist": {
+    "3f7a91c4-2b8e-4d15-9c03-7ae6f1b28d40": {
+      "status": "active",
+      "label": "Sovanreach · phone",
+      "added": 1756600000000
+    }
+  }
+}
+```
+
+| `status` | Effect |
+|---|---|
+| `"active"` | May publish a key, send messages, and broadcast typing/read |
+| `"disabled"` | Blocked — flip it back to `"active"` to restore |
+| *(no entry)* | Never approved; blocked |
+
+Changes take effect on the user's **next** action — the rules are evaluated per request, so a
+user you disable can no longer send, though a session already open keeps *reading* until they
+reload. To cut someone off instantly and completely, disable the Anonymous provider (which
+stops everyone) or delete their `/users/{uuid}` entry from the Console.
+
+The client shows a specific message — *"this uuid is not enabled for access"* — but that is
+only a courtesy. The gate is the `.write` rule on `/users/{uuid}`, keyed on the **path**, not
+on anything the client sends, so a modified client still cannot publish a key.
+
+> **One honest limit:** the rule on `messages` checks the `from` field, which the *sender*
+> supplies. A disabled user who already knows a conversation id could still append by putting
+> an approved UUID in `from`. Content stays encrypted and unforgeable either way — as noted
+> under [the threat model](#what-is-and-isnt-protected), proving "sender = this UUID"
+> needs a backend. The key-publishing gate is not spoofable; this one is.
 
 ### 4 · Point the app at your project
 
@@ -190,6 +255,8 @@ git push -u origin main
 1. Press **gen** for your UUID — **never type a guessable name like `alice`.** Conversation
    paths hash *both* UUIDs, so a guessable pair is the one thing between a stranger and your
    encrypted history. See [Why the UUID matters](#why-the-uuid-matters).
+   Send that UUID to the operator so they can [approve it](#3b--approving-users); until then
+   the handshake stops at *"this uuid is not enabled for access"*.
 2. Add a long, unique **secret key** and your **peer's UUID** → **Establish secure channel**.
    Your key fingerprint renders live as you type.
 3. Your peer opens the app once to publish their key. The first connect fails with
@@ -225,7 +292,7 @@ git push -u origin main
 - **Identity squatting** — an *unclaimed* UUID can be taken; your peer would then encrypt to the squatter
 - **No forward secrecy** — keys are static; a leaked secret exposes past messages
 - **Spam** — any authed client that can compute a path may append; injected junk is permanent
-- **Open sign-up** — auth proves nothing about *who* is asking
+- **Open sign-up** — auth proves nothing about *who* is asking, though the allowlist gates what an anonymous token may actually do
 
 </td></tr>
 </table>
@@ -256,6 +323,7 @@ js/firebase.js      raw REST client + live EventSource stream, auto-reconnect
 js/app.js           UI wiring, identicons, ciphertext peek, scramble reveal
 lib/                vendored TweetNaCl + util — the only dependencies, both offline
 assets/             icon set and screenshots
+firebase.rules.json database rules, including the operator allowlist
 ```
 
 No package manager, no bundler, no transpiler. Clone it and open it.
