@@ -28,6 +28,8 @@ body {
     radial-gradient(700px 500px at 10% 110%, rgba(77,224,214,.08), transparent 55%),
     var(--bg);
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
   font-size: 13px;
   overflow: hidden;
 }
@@ -45,9 +47,16 @@ body::before {
 }
 
 /* ============ LOGIN ============ */
-.login-wrap { position: relative; z-index: 1; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.login-wrap {
+  position: relative; z-index: 1; display: flex; flex-direction: column;
+  /* fixed height (not min-height) so overflow-y actually scrolls — body is
+     overflow:hidden, so a wrapper that merely grows would clip instead */
+  height: 100vh; height: 100dvh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 20px calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
+}
 .login-card {
-  width: 440px; max-width: 100%; background: linear-gradient(180deg, var(--panel), #0a0e15);
+  width: 440px; max-width: 100%; margin: auto; flex: none;
+  background: linear-gradient(180deg, var(--panel), #0a0e15);
   border: 1px solid var(--border); border-radius: 16px; padding: 28px 26px;
   box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.03);
 }
@@ -86,7 +95,8 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 /* full uuids are 36 chars — keep them fully visible, incl. on mobile */
 #uuid, #peer { font-size: 12px; letter-spacing: -.2px; text-overflow: ellipsis; }
 .advanced { margin: 15px 0 4px; }
-.advanced summary { font-size: 10px; color: var(--dim); cursor: pointer; letter-spacing: .5px; }
+.advanced summary { font-size: 10px; color: var(--dim); cursor: pointer; letter-spacing: .5px; list-style: none; }
+.advanced summary::-webkit-details-marker { display: none; }  /* markup supplies its own ▸ */
 .advanced input { margin-top: 8px; font-size: 11px; }
 .remember { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--dim); margin-top: 16px; cursor: pointer; letter-spacing: .3px; }
 .remember input { accent-color: var(--cyan); }
@@ -110,17 +120,18 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 .note b { color: var(--dim); }
 
 /* ============ CHAT ============ */
-.chat-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; max-width: 760px; margin: 0 auto; }
+.chat-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; height: 100dvh; max-width: 760px; margin: 0 auto; }
 .chat-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  padding: max(12px, env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 12px calc(16px + env(safe-area-inset-left));
+  border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(14,19,29,.9), rgba(14,19,29,.6)); backdrop-filter: blur(10px);
 }
 .peer-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .identicon-sm { width: 38px; height: 38px; border-radius: 9px; flex: none; border: 1px solid var(--border-2); image-rendering: pixelated; background: #0a0e15; }
 .peer-meta { min-width: 0; }
 .peer-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 7px; }
-.peer-name .verify { font-size: 8px; color: var(--green); border: 1px solid rgba(67,229,160,.3); border-radius: 5px; padding: 1px 5px; letter-spacing: .5px; }
+.peer-name .verify { font-size: 8px; color: var(--green); border: 1px solid rgba(67,229,160,.3); border-radius: 5px; padding: 1px 5px; letter-spacing: .5px; white-space: nowrap; flex: none; }
 .peer-sub { font-size: 10px; color: var(--faint); margin-top: 2px; letter-spacing: .5px; }
 .peer-sub .fp { color: var(--cyan); }
 .head-actions { display: flex; align-items: center; gap: 9px; flex: none; }
@@ -133,7 +144,7 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 .secbar span { font-size: 8px; color: var(--faint); letter-spacing: .5px; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; }
 .secbar span b { color: var(--cyan); font-weight: 400; }
 
-.messages { flex: 1; overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 9px; }
+.messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 20px 16px; display: flex; flex-direction: column; gap: 9px; }
 .msg { max-width: 76%; padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-wrap: break-word; overflow-wrap: anywhere; cursor: pointer; position: relative; transition: .15s; }
 .msg:hover { border-color: var(--border-2); }
 .msg .time { display: block; font-size: 8px; color: rgba(255,255,255,.35); margin-top: 5px; letter-spacing: .5px; }
@@ -145,7 +156,11 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 .msg .cipher .lbl { color: var(--faint); font-size: 8px; display: block; margin-bottom: 3px; letter-spacing: 1px; }
 .sys { align-self: center; color: var(--faint); font-size: 10px; padding: 8px 0; text-align: center; letter-spacing: .5px; }
 
-.composer { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-top: 1px solid var(--border); background: var(--bg-2); }
+.composer {
+  display: flex; align-items: center; gap: 9px; flex: none;
+  padding: 12px calc(14px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
+  border-top: 1px solid var(--border); background: var(--bg-2);
+}
 .composer .lockhint { color: var(--green); font-size: 13px; flex: none; }
 .composer input[type=text] { flex: 1; border-radius: 10px; background: var(--panel); }
 .icon { background: transparent; font-size: 17px; padding: 4px; }
@@ -182,7 +197,7 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 /* verification badge + clickable peer */
 .peer-info { cursor: pointer; border-radius: 9px; padding: 3px; margin: -3px; transition: .15s; }
 .peer-info:hover { background: rgba(255,255,255,.03); }
-.verify { font-size: 8px; border-radius: 5px; padding: 1px 5px; letter-spacing: .5px; }
+.verify { font-size: 8px; border-radius: 5px; padding: 1px 5px; letter-spacing: .5px; white-space: nowrap; flex: none; }
 .verify.verified { color: var(--green); border: 1px solid rgba(67,229,160,.35); }
 .verify.unverified { color: var(--amber); border: 1px solid rgba(255,207,107,.35); }
 
@@ -214,4 +229,101 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 .verify-note { font-size: 10px; color: var(--faint); line-height: 1.6; margin-bottom: 16px; }
 .verify-note b { color: var(--dim); }
 
-@media (max-width: 520px) { .login-card { padding: 22px 18px; } .msg { max-width: 86%; } .secbar span:nth-child(n+3){display:none} .safety-number { grid-template-columns: repeat(3,1fr); } }
+/* ======================= RESPONSIVE ======================= */
+
+/* tablet / narrow laptop — chat stops being a centred column */
+@media (max-width: 780px) {
+  .chat-wrap { max-width: 100%; }
+}
+
+/* phones */
+@media (max-width: 560px) {
+  .login-wrap { padding: 14px calc(14px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left)); }
+  .login-card { padding: 22px 17px; border-radius: 14px; }
+  .tagline { font-size: 9px; margin: 10px 0 16px; }
+  .brand b { font-size: 14px; }
+  .proto span { font-size: 7px; padding: 2px 5px; }
+
+  /* >=16px stops iOS zooming the whole page in on focus */
+  input[type=text], input[type=password] { font-size: 16px; padding: 12px; }
+  #uuid, #peer { font-size: 16px; letter-spacing: -.4px; }
+  .advanced input { font-size: 14px; }
+  label { margin: 13px 0 6px; }
+
+  /* finger-sized targets */
+  .ghost { min-height: 40px; padding: 0 14px; font-size: 12px; }
+  .primary { padding: 15px; }
+  .remember { min-height: 32px; font-size: 11px; }
+  .advanced summary { padding: 4px 0; font-size: 11px; }
+
+  /* header — keep identity + actions, shed the ornamental bits */
+  .chat-head { gap: 8px; padding-left: calc(12px + env(safe-area-inset-left)); padding-right: calc(12px + env(safe-area-inset-right)); }
+  .identicon-sm { width: 34px; height: 34px; }
+  .peer-name { font-size: 13px; }
+  .peer-name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .peer-sub { font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status-dot span { display: none; }        /* keep the pulsing dot, drop "live" */
+  .head-actions { gap: 5px; }
+
+  /* secbar scrolls horizontally instead of hiding facts outright */
+  .secbar { overflow-x: auto; scrollbar-width: none; padding: 6px 12px; }
+  .secbar::-webkit-scrollbar { display: none; }
+  .secbar span { flex: none; white-space: nowrap; }
+  .secbar .tip { display: none; }
+
+  .messages { padding: 14px 12px; gap: 8px; }
+  .msg { max-width: 88%; }
+
+  .composer { gap: 7px; padding-left: calc(11px + env(safe-area-inset-left)); padding-right: calc(11px + env(safe-area-inset-right)); }
+  .composer .lockhint { display: none; }
+  .composer input[type=text] { font-size: 16px; }
+  .icon { font-size: 20px; padding: 6px; }
+  .send { width: 44px; height: 44px; }
+
+  .typing { padding: 4px 14px 8px; }
+  .img-preview { padding: 10px 12px; }
+
+  /* popover was a fixed 250px — could hang off a 320px screen */
+  .popover { width: min(76vw, 250px); }
+
+  .modal-card { padding: 18px 16px; border-radius: 14px; }
+  .vi canvas { width: 56px; height: 56px; }
+  .verify-idents { gap: 14px; }
+  .safety-number { grid-template-columns: repeat(3, 1fr); padding: 12px; gap: 6px 8px; }
+  .safety-number span { font-size: 13px; letter-spacing: .5px; }
+}
+
+/* small phones (<=360px: iPhone SE, older Androids) */
+@media (max-width: 380px) {
+  .proto { display: none; }                  /* three badges wrap into the brand */
+  .fingerprint { gap: 10px; padding: 10px; }
+  .identicon { width: 40px; height: 40px; }
+  .fp-hint { display: none; }
+  .peer-sub { display: none; }
+  .msg { max-width: 93%; }
+  .safety-number { grid-template-columns: repeat(2, 1fr); }
+  .safety-number span { font-size: 15px; }
+}
+
+/* landscape phones — short viewport, let the card scroll rather than clip */
+@media (max-height: 640px) and (orientation: landscape) {
+  .login-card { padding: 18px 20px; }
+  .fingerprint { margin-bottom: 0; }
+  .fp-hint, .note { display: none; }
+  label { margin: 10px 0 5px; }
+  .primary { margin-top: 12px; }
+}
+
+/* coarse pointers: hover styles never un-stick on touch */
+@media (hover: none) {
+  .ghost:hover { color: var(--dim); border-color: var(--border); }
+  .primary:hover { box-shadow: none; }
+  .send:hover { box-shadow: none; }
+  .icon:hover { transform: none; }
+  .msg:hover { border-color: inherit; }
+  .peer-info:hover { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
