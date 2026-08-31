@@ -9,11 +9,14 @@
   const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  const PAGE = 50;   // messages per page, initial and per "load older"
+
   const S = { uuid: null, secret: null, keypair: null, peer: null, peerPub: null, myPub: null,
               db: null, auth: null, cid: null, es: null, msgs: new Map(), view: new Map(),
               peeking: new Set(), animate: new Set(), pendingImage: null, loaded: false,
               peerRead: 0, verified: false, typingThrottle: 0, typingTimer: null, readThrottle: 0,
-              peerState: 'active', peerWatch: null };
+              peerState: 'active', peerWatch: null,
+              dec: new Map(), oldestKey: null, hasMore: false, loadingMore: false };
 
   // ---------- key fingerprint + identicon ----------
   function fpHex(pubB64) {
@@ -258,7 +261,8 @@
     S.peerWatch = setInterval(refreshPeerState, 90000);
     armIdle();
     $('statusDot').classList.add('on');
-    S.msgs.clear(); S.loaded = false; S.peerRead = 0;
+    S.msgs.clear(); S.dec.clear(); S.loaded = false; S.peerRead = 0;
+    S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
     $('messages').innerHTML = '<div class="sys">◇ loading encrypted history…</div>';
 
     S.es = S.db.stream(S.cid, {
@@ -273,12 +277,14 @@
     }, (up) => {
       $('statusDot').classList.toggle('on', up);
       $('statusText').textContent = up ? 'live' : 'offline';   // the dot alone read as connected
-    });
+    }, PAGE);
 
-    S.db.getMessages(S.cid).then((list) => {
+    S.db.getMessages(S.cid, PAGE).then((list) => {
       list.forEach((m) => S.msgs.set(m.id, m));
-      S.loaded = true; render();
-    }).catch(() => { S.loaded = true; });
+      S.oldestKey = list.length ? list[0].id : null;
+      S.hasMore = list.length >= PAGE;   // a full page suggests there is more behind it
+      S.loaded = true; render({ toBottom: true });
+    }).catch(() => { S.loaded = true; render({ toBottom: true }); });
   }
 
   // ---------- peer access notice ----------
@@ -350,14 +356,30 @@
     S.typingTimer = setTimeout(() => $('typing').classList.add('hidden'), 4500);
   }
 
-  function render() {
+  // opts.toBottom  — jump to newest (first load, own message)
+  // opts.keepScroll — anchor the viewport after prepending older messages
+  function render(opts) {
     const box = $('messages');
+    const o = opts || {};
+    const wasNearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    const prevH = box.scrollHeight, prevTop = box.scrollTop;
+
     const items = [...S.msgs.entries()].sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0));
-    if (!items.length) { box.innerHTML = '<div class="sys">no messages yet — say hello · end-to-end encrypted</div>'; return; }
+    const more = S.hasMore
+      ? `<button type="button" class="load-more" id="loadMore"${S.loadingMore ? ' disabled' : ''}>` +
+        `${S.loadingMore ? 'loading…' : `↑ load ${PAGE} older messages`}</button>`
+      : '';
+    if (!items.length) {
+      box.innerHTML = more + '<div class="sys">no messages yet — say hello · end-to-end encrypted</div>';
+      return;
+    }
     S.view.clear();
-    box.innerHTML = items.map(([id, m]) => {
+    box.innerHTML = more + items.map(([id, m]) => {
       const mine = m.from === S.uuid;
-      const env = CryptoBox.decryptEnvelope(m, S.keypair.secretKey, S.peerPub);
+      // decryption is the expensive part of a render, and a message never
+      // changes once written — so open each one only the first time we see it
+      let env = S.dec.get(id);
+      if (env === undefined) { env = CryptoBox.decryptEnvelope(m, S.keypair.secretKey, S.peerPub); S.dec.set(id, env); }
       const read = mine && m.ts && m.ts <= S.peerRead;
       const status = mine ? `<span class="status ${read ? 'read' : ''}">${read ? '✓✓' : '✓'}</span>` : '';
       const time = m.ts ? `<span class="time">${fmtTime(m.ts)}${status}</span>` : '';
@@ -372,7 +394,12 @@
       const show = S.peeking.has(id) ? cipherHTML : plainHTML;
       return `<div class="${cls}" data-id="${id}">${show}</div>`;
     }).join('');
-    box.scrollTop = box.scrollHeight;
+
+    // Prepending older messages must not move the reader, and an arriving
+    // message must not yank someone who has scrolled up to read history.
+    if (o.keepScroll) box.scrollTop = prevTop + (box.scrollHeight - prevH);
+    else if (o.toBottom || wasNearBottom) box.scrollTop = box.scrollHeight;
+    else box.scrollTop = prevTop;
 
     // scramble-decrypt reveal for freshly-arrived incoming text
     S.animate.forEach((id) => {
@@ -383,6 +410,21 @@
     });
     S.animate.clear();
     maybeMarkRead();
+  }
+
+  async function loadOlder() {
+    if (S.loadingMore || !S.hasMore || !S.oldestKey) return;
+    S.loadingMore = true; render({ keepScroll: true });
+    try {
+      const older = await S.db.getMessagesBefore(S.cid, S.oldestKey, PAGE);
+      older.forEach((m) => S.msgs.set(m.id, m));
+      if (older.length) S.oldestKey = older[0].id;
+      S.hasMore = older.length >= PAGE;
+    } catch (ex) {
+      S.hasMore = true;   // leave the control up so it can be retried
+    }
+    S.loadingMore = false;
+    render({ keepScroll: true });
   }
 
   // mark everything up to the latest message as read (throttled; privacy-gated)
@@ -416,6 +458,7 @@
 
   // click a message to toggle ciphertext view
   $('messages').addEventListener('click', (e) => {
+    if (e.target.id === 'loadMore') { loadOlder(); return; }
     const el = e.target.closest('.msg'); if (!el) return;
     const id = el.dataset.id; const v = S.view.get(id); if (!v) return;
     if (S.peeking.has(id)) { S.peeking.delete(id); el.innerHTML = v.plain; }
@@ -438,6 +481,7 @@
   async function send(envelope) {
     const payload = CryptoBox.encryptEnvelope(envelope, S.keypair.secretKey, S.peerPub);
     await S.db.sendMessage(S.cid, { from: S.uuid, to: S.peer, ts: Date.now(), ...payload });
+    render({ toBottom: true });   // your own message always scrolls into view
   }
 
   $('composer').addEventListener('submit', async (e) => {
@@ -536,7 +580,8 @@
     disarmIdle();
     S.peerState = 'active'; $('peerAlert').classList.add('hidden'); $('peerAlert').innerHTML = '';
     S.secret = null; S.keypair = null; S.peerPub = null;
-    S.msgs.clear(); S.view.clear(); S.peeking.clear();
+    S.msgs.clear(); S.view.clear(); S.peeking.clear(); S.dec.clear();
+    S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
     $('messages').innerHTML = '';
     $('msgInput').value = ''; clearPreview();
     $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL';

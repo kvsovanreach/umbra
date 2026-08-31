@@ -195,6 +195,14 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 }
 .peer-alert b { color: var(--amber); font-weight: 700; word-break: break-all; }
 
+.load-more {
+  align-self: center; margin-bottom: 4px; padding: 7px 14px; border-radius: 9px;
+  background: var(--bg-2); border: 1px solid var(--border); color: var(--dim);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .5px; flex: none;
+}
+.load-more:hover:not(:disabled) { color: var(--text); border-color: var(--border-2); }
+.load-more:disabled { opacity: .55; cursor: default; }
+
 .sys { align-self: center; color: var(--faint); font-size: 10px; padding: 8px 0; text-align: center; letter-spacing: .5px; }
 
 .composer {
@@ -315,6 +323,7 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
   .rid-val { font-size: 11px; }
   .linkish { min-height: 34px; }
   .peer-alert, .idle-warn { padding: 8px 12px; font-size: 10px; }
+  .load-more { min-height: 36px; }
   .messages { padding: 14px 12px; gap: 8px; }
   .msg { max-width: 88%; }
 

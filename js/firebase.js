@@ -6,13 +6,16 @@
  */
 window.FireDB = function (databaseURL, tokenProvider) {
   const base = databaseURL.replace(/\/$/, '');
-  const auth = () => {
+  const qs = (extra) => {
     const t = tokenProvider && tokenProvider();
-    return t ? `?auth=${encodeURIComponent(t)}` : '';
+    const parts = [];
+    if (t) parts.push('auth=' + encodeURIComponent(t));
+    if (extra) parts.push(extra);
+    return parts.length ? '?' + parts.join('&') : '';
   };
 
-  async function _req(method, path, body) {
-    const res = await fetch(`${base}/${path}.json${auth()}`, {
+  async function _req(method, path, body, query) {
+    const res = await fetch(`${base}/${path}.json${qs(query)}`, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -20,6 +23,37 @@ window.FireDB = function (databaseURL, tokenProvider) {
     if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
     return res.status === 204 ? null : res.json();
   }
+
+  // Messages are POSTed, so their keys are Firebase push ids — lexicographically
+  // ordered by creation time. Paging on $key therefore needs no .indexOn, unlike
+  // ordering on ts, and it can't be skewed by a client's clock.
+  const byKey = (map) => !map ? []
+    : Object.keys(map).sort().map((id) => Object.assign({ id }, map[id]));
+
+  // one reconnecting EventSource; `route(path, data)` receives each put/patch
+  function _es(path, query, route, onState) {
+    let es = null, closed = false, retry = 0;
+    const open = () => {
+      if (closed) return;
+      es = new EventSource(`${base}/${path}.json${qs(query)}`);
+      const handle = (e) => {
+        retry = 0; if (onState) onState(true);
+        let p; try { p = JSON.parse(e.data); } catch (_) { return; }
+        // null data means a removal — e.g. the limitToLast window sliding past an
+        // older message. We keep what we already have, so there is nothing to do.
+        if (!p || p.data == null) return;
+        route(p.path, p.data);
+      };
+      es.addEventListener('put', handle);
+      es.addEventListener('patch', handle);
+      es.addEventListener('auth_revoked', () => { es.close(); reconnect(); });
+      es.onerror = () => { if (onState) onState(false); es.close(); reconnect(); };
+    };
+    const reconnect = () => { if (closed) return; retry = Math.min(retry + 1, 6); setTimeout(open, 1000 * retry); };
+    open();
+    return { close: () => { closed = true; if (es) es.close(); } };
+  }
+  const childOf = (path) => path.split('/').filter(Boolean)[0];
 
   return {
     publishPublicKey: (uuid, publicKey) =>
@@ -56,53 +90,46 @@ window.FireDB = function (databaseURL, tokenProvider) {
     setTyping: (cid, uuid, ts) => _req('PUT', `conversations/${cid}/typing/${uuid}`, ts),
     setRead: (cid, uuid, ts) => _req('PUT', `conversations/${cid}/read/${uuid}`, ts),
 
-    getMessages: async (cid) => {
-      const map = await _req('GET', `conversations/${cid}/messages`);
-      if (!map) return [];
-      return Object.entries(map).map(([id, m]) => ({ id, ...m }))
-        .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    // newest page — the last `limit` messages, oldest-first
+    getMessages: async (cid, limit) =>
+      byKey(await _req('GET', `conversations/${cid}/messages`, null,
+        `orderBy=%22%24key%22&limitToLast=${limit || 50}`)),
+
+    // older page — the `limit` messages immediately before `beforeKey`.
+    // endAt is inclusive, so ask for one extra and drop the boundary itself.
+    getMessagesBefore: async (cid, beforeKey, limit) => {
+      const n = (limit || 50) + 1;
+      const rows = byKey(await _req('GET', `conversations/${cid}/messages`, null,
+        `orderBy=%22%24key%22&endAt=%22${encodeURIComponent(beforeKey)}%22&limitToLast=${n}`));
+      return rows.filter((m) => m.id !== beforeKey);
     },
 
-    // one live stream over the whole conversation, routed to handlers:
+    // Three scoped streams instead of one on the whole conversation. The old
+    // single stream re-sent every message in the thread on each connect, which
+    // is what made a long history expensive; the messages stream is now bounded
+    // by the same window as the initial page.
     //   h.onMessage(id, msg) · h.onTyping(uuid, ts) · h.onRead(uuid, ts)
-    stream: function (cid, h, onState) {
-      let es = null, closed = false, retry = 0;
-      const eachMap = (m, fn) => m && typeof m === 'object' && Object.entries(m).forEach(([k, v]) => fn(k, v));
-      const route = (path, data) => {
-        if (path === '/') {
-          eachMap(data.messages, (id, m) => m && m.c && h.onMessage(id, m));
-          eachMap(data.typing, (u, t) => h.onTyping(u, t));
-          eachMap(data.read, (u, t) => h.onRead(u, t));
-          return;
-        }
-        const parts = path.split('/').filter(Boolean); // [section, key]
-        const [section, key] = parts;
-        if (section === 'messages') {
-          if (key) { if (data && data.c) h.onMessage(key, data); }
-          else eachMap(data, (id, m) => m && m.c && h.onMessage(id, m));
-        } else if (section === 'typing') {
-          if (key) h.onTyping(key, data); else eachMap(data, h.onTyping);
-        } else if (section === 'read') {
-          if (key) h.onRead(key, data); else eachMap(data, h.onRead);
-        }
-      };
-      const open = () => {
-        if (closed) return;
-        es = new EventSource(`${base}/conversations/${cid}.json${auth()}`);
-        const handle = (e) => {
-          retry = 0; onState && onState(true);
-          let p; try { p = JSON.parse(e.data); } catch (_) { return; }
-          if (!p || p.data == null) return;
-          route(p.path, p.data);
-        };
-        es.addEventListener('put', handle);
-        es.addEventListener('patch', handle);
-        es.addEventListener('auth_revoked', () => { es.close(); reconnect(); });
-        es.onerror = () => { onState && onState(false); es.close(); reconnect(); };
-      };
-      const reconnect = () => { if (closed) return; retry = Math.min(retry + 1, 6); setTimeout(open, 1000 * retry); };
-      open();
-      return { close: () => { closed = true; if (es) es.close(); } };
+    stream: function (cid, h, onState, windowSize) {
+      const eachMap = (m, fn) => m && typeof m === 'object' && Object.keys(m).forEach((k) => fn(k, m[k]));
+      const subs = [
+        // only this one drives the connection indicator; the other two would
+        // fight over it and flicker
+        _es(`conversations/${cid}/messages`, `orderBy=%22%24key%22&limitToLast=${windowSize || 50}`,
+          (path, data) => {
+            const id = childOf(path);
+            if (id) { if (data && data.c) h.onMessage(id, data); }
+            else eachMap(data, (k, m) => m && m.c && h.onMessage(k, m));
+          }, onState),
+        _es(`conversations/${cid}/typing`, '', (path, data) => {
+          const u = childOf(path);
+          if (u) h.onTyping(u, data); else eachMap(data, h.onTyping);
+        }),
+        _es(`conversations/${cid}/read`, '', (path, data) => {
+          const u = childOf(path);
+          if (u) h.onRead(u, data); else eachMap(data, h.onRead);
+        }),
+      ];
+      return { close: () => subs.forEach((s) => s.close()) };
     },
   };
 };

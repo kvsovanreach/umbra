@@ -301,6 +301,14 @@ is a valid login — **as them** — because a UUID plus its secret *is* that id
 makes which one unmistakable. A wrong passphrase for a UUID that already holds a key is
 refused outright, before anything is written.
 
+**History loads a page at a time.** The newest **50** messages load on open, with a
+*load 50 older messages* control above them; the viewport stays anchored when older ones are
+prepended, and an arriving message never yanks you down while you are reading back. Paging is
+on the Firebase push key rather than `ts` — push ids are already chronological, so it needs no
+`.indexOn` and cannot be skewed by a client's clock. The live stream carries the same window,
+so reconnecting no longer re-downloads the whole thread, and each message is decrypted once
+and cached rather than re-opened on every render. `PAGE` in `js/app.js`.
+
 **Auto-lock.** After **30 minutes without interaction** the session locks itself: the keypair
 is dropped from memory, decrypted messages are cleared from the DOM, and the live stream is
 closed. A countdown appears for the last minute, and any input cancels it. Because background
@@ -369,7 +377,7 @@ css/style.css       crypto-terminal design system · fully responsive
 js/config.js        Firebase URL + API key (public by design)
 js/crypto.js        PBKDF2 derivation, nacl.box, hashed conv ids, safety numbers
 js/auth.js          anonymous Firebase Auth over REST + token refresh
-js/firebase.js      raw REST client + live EventSource stream, auto-reconnect
+js/firebase.js      raw REST client, key-paged reads, three scoped live streams
 js/app.js           views, access gate, auto-lock, identicons, ciphertext peek
 lib/                vendored TweetNaCl + util — the only dependencies, both offline
 firebase.rules.json database rules: allowlist, write-once keys, append-only messages
