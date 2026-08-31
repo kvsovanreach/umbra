@@ -12,7 +12,8 @@
   const S = { uuid: null, secret: null, keypair: null, peer: null, peerPub: null, myPub: null,
               db: null, auth: null, cid: null, es: null, msgs: new Map(), view: new Map(),
               peeking: new Set(), animate: new Set(), pendingImage: null, loaded: false,
-              peerRead: 0, verified: false, typingThrottle: 0, typingTimer: null, readThrottle: 0 };
+              peerRead: 0, verified: false, typingThrottle: 0, typingTimer: null, readThrottle: 0,
+              peerState: 'active', peerWatch: null };
 
   // ---------- key fingerprint + identicon ----------
   function fpHex(pubB64) {
@@ -140,6 +141,9 @@
       await hsStep('fetching peer public key…');
       S.peerPub = await S.db.getPublicKey(peer);
       if (!S.peerPub) return fail(`peer "${peer}" hasn't joined — they must open the app once to publish their key`);
+      await hsStep('checking peer access…');
+      S.peerState = (await S.db.getStatus(peer)).state;
+
       await hsStep('ECDH shared secret established', 340);
 
       S.cid = CryptoBox.conversationId(uuid, peer);
@@ -163,6 +167,9 @@
     $('meFp').textContent = fpHex(S.myPub);
     drawIdenticon($('peerIdenticon'), S.peerPub);
     initVerification();
+    renderPeerAlert();
+    clearInterval(S.peerWatch);
+    S.peerWatch = setInterval(refreshPeerState, 90000);
     $('statusDot').classList.add('on');
     S.msgs.clear(); S.loaded = false; S.peerRead = 0;
     $('messages').innerHTML = '<div class="sys">◇ loading encrypted history…</div>';
@@ -183,6 +190,33 @@
       S.loaded = true; render();
     }).catch(() => { S.loaded = true; });
   }
+
+  // ---------- peer access notice ----------
+  // 'unreadable' means the allowlist rules aren't deployed — say nothing rather
+  // than cry wolf. Anything else that isn't 'active' means the peer can't write.
+  function renderPeerAlert() {
+    const el = $('peerAlert'), st = S.peerState;
+    if (st === 'active' || st === 'unreadable') { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    const who = `<b>${esc(S.peer.length > 14 ? S.peer.slice(0, 10) + '…' : S.peer)}</b>`;
+    const msg = st === 'disabled'
+      ? `${who} has been disabled by the operator — they can't send or reply until re-enabled.`
+      : st === 'unlisted'
+        ? `${who} is no longer approved for access — they can't send or reply.`
+        : `${who} is not active (status: ${esc(st)}) — they can't send or reply.`;
+    el.innerHTML = `<span>⚠</span><span>${msg} Your messages are still encrypted and stored for them.</span>`;
+    el.classList.remove('hidden');
+  }
+
+  async function refreshPeerState() {
+    if (!S.db || !S.peer) return;
+    try {
+      const st = (await S.db.getStatus(S.peer)).state;
+      if (st !== S.peerState) { S.peerState = st; renderPeerAlert(); }
+    } catch (e) { /* transient — keep showing whatever we last knew */ }
+  }
+
+  // re-check when the tab comes back into focus, so a peer disabled mid-session surfaces
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPeerState(); });
 
   // ---------- verification ----------
   const vKey = () => `aiclab-verify::${S.uuid}::${S.peer}`;
@@ -360,6 +394,8 @@
   $('logout').addEventListener('click', () => {
     if (S.es) S.es.close();
     if (S.auth) S.auth.stop();
+    clearInterval(S.peerWatch); S.peerWatch = null;
+    S.peerState = 'active'; $('peerAlert').classList.add('hidden'); $('peerAlert').innerHTML = '';
     S.secret = null; S.keypair = null; S.msgs.clear(); S.view.clear(); S.peeking.clear();
     $('chat').classList.add('hidden'); $('login').classList.remove('hidden');
     $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL';

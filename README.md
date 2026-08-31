@@ -196,6 +196,12 @@ user you disable can no longer send, though a session already open keeps *readin
 reload. To cut someone off instantly and completely, disable the Anonymous provider (which
 stops everyone) or delete their `/users/{uuid}` entry from the Console.
 
+**Their peer is told.** Rather than watching someone go silent for no reason, the other side of
+the conversation shows a standing notice — *"… has been disabled by the operator — they can't
+send or reply until re-enabled"* — checked at connect, again whenever the tab regains focus,
+and on a 90-second poll. Re-enable the user and the notice clears on the next check. Messages
+sent to a disabled peer are still encrypted and stored, and arrive once they are back.
+
 The client shows a specific message — *"this uuid is not enabled for access"* — but that is
 only a courtesy. The gate is the `.write` rule on `/users/{uuid}`, keyed on the **path**, not
 on anything the client sends, so a modified client still cannot publish a key.
