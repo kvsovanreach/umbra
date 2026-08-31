@@ -281,6 +281,15 @@ git push -u origin main
 > Same UUID + same secret = same identity anywhere. Nothing is recoverable if you lose
 > either — **keep your UUID**, since a 36-character id is not something you will memorise.
 
+**Refreshing the page** shows a lock screen asking only for your passphrase — the two UUIDs
+and the database URL are remembered, the secret never is. Your key fingerprint appears as you
+type, so a mistyped passphrase is visible *before* you connect. **leave** locks the session the
+same way; *use a different identity* clears the remembered ids and returns the full form.
+
+Identity is held in `sessionStorage` (survives a refresh, dies with the tab) and additionally
+in `localStorage` when **remember uuid & peer** is ticked (survives a browser restart). The
+passphrase is written to neither, at any point.
+
 ---
 
 ## What is (and isn't) protected

@@ -41,28 +41,59 @@
   }
 
   // live fingerprint as the user types (PBKDF2 is ~100ms, so debounce + latest-wins)
-  let fpSeq = 0, fpTimer = null;
-  function refreshMyKey() {
-    const uuid = $('uuid').value.trim(), secret = $('secret').value;
-    if (!uuid || !secret) { $('myFp').textContent = '— — — —'; $('myFp').classList.remove('busy'); drawIdenticon($('myIdenticon'), null); return; }
-    $('myFp').textContent = 'deriving…';
-    clearTimeout(fpTimer);
-    fpTimer = setTimeout(async () => {
-      const seq = ++fpSeq;
-      try {
-        const kp = await CryptoBox.keypairFrom(uuid, secret);
-        if (seq !== fpSeq) return; // a newer keystroke superseded this
-        const pub = CryptoBox.publicKeyB64(kp);
-        $('myFp').textContent = fpHex(pub);
-        drawIdenticon($('myIdenticon'), pub);
-      } catch (e) { $('myFp').textContent = '— — — —'; }
-    }, 250);
+  function liveFingerprint(getUuid, getSecret, fpEl, canvas) {
+    let seq = 0, timer = null;
+    return function () {
+      const uuid = getUuid(), secret = getSecret();
+      if (!uuid || !secret) { fpEl.textContent = '— — — —'; drawIdenticon(canvas, null); return; }
+      fpEl.textContent = 'deriving…';
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const mine = ++seq;
+        try {
+          const kp = await CryptoBox.keypairFrom(uuid, secret);
+          if (mine !== seq) return; // a newer keystroke superseded this
+          const pub = CryptoBox.publicKeyB64(kp);
+          fpEl.textContent = fpHex(pub);
+          drawIdenticon(canvas, pub);
+        } catch (e) { fpEl.textContent = '— — — —'; }
+      }, 250);
+    };
   }
+  const refreshMyKey = liveFingerprint(
+    () => $('uuid').value.trim(), () => $('secret').value, $('myFp'), $('myIdenticon'));
+  const refreshUnlockKey = liveFingerprint(
+    () => (savedIdentity() || {}).uuid, () => $('unlockSecret').value, $('unlockFp'), $('unlockIdenticon'));
   $('secret').addEventListener('input', refreshMyKey);
   $('uuid').addEventListener('input', refreshMyKey);
+  $('unlockSecret').addEventListener('input', refreshUnlockKey);
+
+  // ---------- session memory ----------
+  // Identity only — the secret is NEVER written anywhere. sessionStorage survives a
+  // refresh but dies with the tab; localStorage is the opt-in "remember" checkbox.
+  const SKEY = 'umbra-session', LKEY = 'aiclab';
+  const readJSON = (store, k) => { try { return JSON.parse(store.getItem(k) || '{}'); } catch (e) { return {}; } };
+  const complete = (v) => !!(v && v.uuid && v.peer && v.dburl);
+  function savedIdentity() {
+    const s1 = readJSON(sessionStorage, SKEY); if (complete(s1)) return s1;
+    const s2 = readJSON(localStorage, LKEY);   if (complete(s2)) return s2;
+    return null;
+  }
+  function rememberIdentity(v, persist) {
+    const rec = JSON.stringify({ uuid: v.uuid, peer: v.peer, dburl: v.dburl });
+    try { sessionStorage.setItem(SKEY, rec); } catch (e) { /* private mode */ }
+    if (persist) localStorage.setItem(LKEY, rec); else localStorage.removeItem(LKEY);
+  }
+  function forgetIdentity() {
+    try { sessionStorage.removeItem(SKEY); } catch (e) {}
+    localStorage.removeItem(LKEY);
+  }
+
+  const VIEWS = { login: $('login'), unlock: $('unlock'), chat: $('chat') };
+  const show = (name) => Object.keys(VIEWS).forEach((k) => VIEWS[k].classList.toggle('hidden', k !== name));
 
   // ---------- login prefill ----------
-  const saved = JSON.parse(localStorage.getItem('aiclab') || '{}');
+  const saved = readJSON(localStorage, LKEY);
   if (saved.uuid) $('uuid').value = saved.uuid;
   if (saved.peer) $('peer').value = saved.peer;
   $('dburl').value = saved.dburl || (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || '';
@@ -80,44 +111,43 @@
   $('genUuid').addEventListener('click', () => { $('uuid').value = randomUUID(); });
 
   // ---------- handshake ----------
-  async function hsStep(text, ms) {
+  async function hsStep(target, text, ms) {
     const el = document.createElement('div');
     el.className = 'step';
     el.innerHTML = `<span>◇</span><span>${text}</span>`;
-    $('handshake').appendChild(el);
+    target.appendChild(el);
     await sleep(ms || 260);
     el.querySelector('span:first-child').outerHTML = '<span class="tick">✓</span>';
     return el;
   }
 
   // ---------- connect ----------
-  $('loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const err = $('loginErr'); err.textContent = ''; $('handshake').innerHTML = '';
-    const uuid = $('uuid').value.trim(), secret = $('secret').value, peer = $('peer').value.trim(), dburl = $('dburl').value.trim();
-    if (!uuid || !secret || !peer) { err.textContent = 'uuid, secret and peer are required'; return; }
-    if (!dburl || dburl.includes('YOUR-PROJECT')) { err.textContent = 'set your firebase database url (advanced)'; return; }
-    if (uuid === peer) { err.textContent = 'your uuid and peer uuid must differ'; return; }
+  // Shared by the full login form and the unlock (returning session) form.
+  // `ui` names the elements to drive so each form reports into its own card.
+  async function establish(vals, ui) {
+    const { uuid, secret, peer, dburl } = vals;
+    ui.err.textContent = ''; ui.hs.innerHTML = '';
+    if (!uuid || !secret || !peer) { ui.err.textContent = 'uuid, secret and peer are required'; return; }
+    if (!dburl || dburl.includes('YOUR-PROJECT')) { ui.err.textContent = 'set your firebase database url (advanced)'; return; }
+    if (uuid === peer) { ui.err.textContent = 'your uuid and peer uuid must differ'; return; }
 
-    $('connect').disabled = true; $('connect').textContent = 'ESTABLISHING…';
-    const fail = (msg) => {
-      err.textContent = msg;
-      $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL';
-    };
+    ui.btn.disabled = true; ui.btn.textContent = ui.busy;
+    const fail = (msg) => { ui.err.textContent = msg; ui.btn.disabled = false; ui.btn.textContent = ui.idle; };
+    const step = (text, ms) => hsStep(ui.hs, text, ms);
     try {
       S.uuid = uuid; S.secret = secret; S.peer = peer;
-      await hsStep('deriving keypair · PBKDF2-250k · X25519…', 340);
+      await step('deriving keypair · PBKDF2-250k · X25519…', 340);
       S.keypair = await CryptoBox.keypairFrom(uuid, secret);
 
       S.auth = FireAuth((window.FIREBASE_CONFIG || {}).apiKey);
       if (S.auth.enabled()) {
-        await hsStep('anonymous auth · acquiring token…');
+        await step('anonymous auth · acquiring token…');
         await S.auth.signIn();
       }
       S.db = FireDB(dburl, () => S.auth.token());
 
       // access gate — the DB rule is the real enforcement, this is for a clear message
-      await hsStep('checking account access…');
+      await step('checking account access…');
       const acct = await S.db.getStatus(uuid);
       // default-deny: only an explicit 'active' gets through. Anything else —
       // including "the allowlist rules aren't published" — is refused, so the
@@ -131,7 +161,7 @@
           : `this uuid is not active (status: ${acct.state})`);
       }
 
-      await hsStep(`publishing public key → /users/${uuid}…`);
+      await step(`publishing public key → /users/${uuid}…`);
       try {
         await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair));
       } catch (ex) {
@@ -141,29 +171,68 @@
         throw ex;
       }
 
-      await hsStep('fetching peer public key…');
+      await step('fetching peer public key…');
       S.peerPub = await S.db.getPublicKey(peer);
       if (!S.peerPub) return fail(`peer "${peer}" hasn't joined — they must open the app once to publish their key`);
-      await hsStep('checking peer access…');
+      await step('checking peer access…');
       S.peerState = (await S.db.getStatus(peer)).state;
 
-      await hsStep('ECDH shared secret established', 340);
+      await step('ECDH shared secret established', 340);
 
       S.cid = CryptoBox.conversationId(uuid, peer);
-      if ($('remember').checked) localStorage.setItem('aiclab', JSON.stringify({ uuid, peer, dburl }));
-      else localStorage.removeItem('aiclab');
+      rememberIdentity(vals, vals.remember);
       await sleep(240);
       enterChat();
     } catch (ex) {
-      err.textContent = 'failed: ' + ex.message;
-      $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL';
+      fail('failed: ' + ex.message);
     }
+  }
+
+  $('loginForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    establish({
+      uuid: $('uuid').value.trim(), secret: $('secret').value,
+      peer: $('peer').value.trim(), dburl: $('dburl').value.trim(),
+      remember: $('remember').checked,
+    }, { err: $('loginErr'), hs: $('handshake'), btn: $('connect'),
+         busy: 'ESTABLISHING…', idle: 'ESTABLISH SECURE CHANNEL' });
+  });
+
+  // ---------- unlock (returning session) ----------
+  function showUnlock(id) {
+    $('unlockUuid').textContent = id.uuid; $('unlockUuid').title = id.uuid;
+    $('unlockPeer').textContent = id.peer; $('unlockPeer').title = id.peer;
+    $('unlockSecret').value = '';
+    $('unlockErr').textContent = ''; $('unlockHandshake').innerHTML = '';
+    $('unlockBtn').disabled = false; $('unlockBtn').textContent = 'UNLOCK';
+    refreshUnlockKey();
+    show('unlock');
+    setTimeout(() => $('unlockSecret').focus(), 60);
+  }
+
+  $('unlockForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const id = savedIdentity();
+    if (!id) return show('login');
+    establish({ uuid: id.uuid, peer: id.peer, dburl: id.dburl,
+                secret: $('unlockSecret').value,
+                remember: complete(readJSON(localStorage, LKEY)) },
+      { err: $('unlockErr'), hs: $('unlockHandshake'), btn: $('unlockBtn'),
+        busy: 'UNLOCKING…', idle: 'UNLOCK' });
+  });
+
+  $('switchIdentity').addEventListener('click', () => {
+    forgetIdentity();
+    $('uuid').value = ''; $('peer').value = ''; $('secret').value = '';
+    $('dburl').value = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || '';
+    $('remember').checked = false;
+    refreshMyKey();
+    show('login');
   });
 
   // ---------- chat ----------
   function enterChat() {
-    $('login').classList.add('hidden');
-    $('chat').classList.remove('hidden');
+    show('chat');
     S.myPub = CryptoBox.publicKeyB64(S.keypair);
     $('peerName').textContent = S.peer;
     $('peerFp').textContent = fpHex(S.peerPub);
@@ -393,15 +462,26 @@
     });
   }
 
-  // ---------- logout ----------
+  // ---------- leave (lock the session) ----------
+  // Drops every key from memory. The identity is kept so you land on the unlock
+  // card rather than retyping two UUIDs; "use a different identity" clears it.
   $('logout').addEventListener('click', () => {
     if (S.es) S.es.close();
     if (S.auth) S.auth.stop();
     clearInterval(S.peerWatch); S.peerWatch = null;
     S.peerState = 'active'; $('peerAlert').classList.add('hidden'); $('peerAlert').innerHTML = '';
-    S.secret = null; S.keypair = null; S.msgs.clear(); S.view.clear(); S.peeking.clear();
-    $('chat').classList.add('hidden'); $('login').classList.remove('hidden');
+    S.secret = null; S.keypair = null; S.peerPub = null;
+    S.msgs.clear(); S.view.clear(); S.peeking.clear();
+    $('messages').innerHTML = '';
     $('connect').disabled = false; $('connect').textContent = 'ESTABLISH SECURE CHANNEL';
     $('handshake').innerHTML = ''; $('secret').value = ''; refreshMyKey();
+    const id = savedIdentity();
+    if (id) showUnlock(id); else show('login');
   });
+
+  // ---------- boot ----------
+  // A refresh lands here: identity is remembered, the secret never is, so all we
+  // ask for is the passphrase that re-derives the key.
+  const resuming = savedIdentity();
+  if (resuming) showUnlock(resuming); else show('login');
 })();

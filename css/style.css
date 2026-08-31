@@ -119,6 +119,21 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
 .note { color: var(--faint); font-size: 10px; line-height: 1.6; margin-top: 14px; text-align: center; }
 .note b { color: var(--dim); }
 
+/* returning-session identity summary */
+.resume-ids { display: grid; gap: 7px; margin-top: 14px; }
+.rid {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 9px;
+}
+.rid-lbl { font-size: 9px; color: var(--faint); letter-spacing: 1px; flex: none; width: 34px; }
+.rid-val { font-size: 11px; color: var(--text); letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linkish {
+  display: block; width: 100%; margin-top: 14px; padding: 4px; background: none;
+  color: var(--faint); font-size: 10px; letter-spacing: .4px; text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.linkish:hover { color: var(--dim); }
+
 /* ============ CHAT ============ */
 .chat-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; height: 100dvh; max-width: 760px; margin: 0 auto; }
 .chat-head {
@@ -280,6 +295,8 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(77,224,214,.
   .secbar span { flex: none; white-space: nowrap; }
   .secbar .tip { display: none; }
 
+  .rid-val { font-size: 11px; }
+  .linkish { min-height: 34px; }
   .peer-alert { padding: 8px 12px; font-size: 10px; }
   .messages { padding: 14px 12px; gap: 8px; }
   .msg { max-width: 88%; }

@@ -69,6 +69,39 @@
     </form>
   </div>
 
+  <!-- ===== unlock (returning session — secret only) ===== -->
+  <div id="unlock" class="login-wrap hidden">
+    <form class="login-card" id="unlockForm" autocomplete="off">
+      <div class="brand-row">
+        <div class="brand"><img class="lockmark" src="assets/favicon.svg" alt="" width="30" height="30" /><b>umbra<span>::</span>e2e</b></div>
+        <div class="proto"><span>LOCKED</span></div>
+      </div>
+      <div class="tagline">// session locked · your secret is never stored, only re-derived</div>
+
+      <div class="fingerprint">
+        <canvas class="identicon" id="unlockIdenticon" width="9" height="9"></canvas>
+        <div class="fp-meta">
+          <div class="fp-label">YOUR KEY FINGERPRINT</div>
+          <div class="fp-hex" id="unlockFp">— — — —</div>
+          <div class="fp-hint">appears as you type · confirms the right secret before you connect</div>
+        </div>
+      </div>
+
+      <div class="resume-ids">
+        <div class="rid"><span class="rid-lbl">YOU</span><span class="rid-val" id="unlockUuid">—</span></div>
+        <div class="rid"><span class="rid-lbl">PEER</span><span class="rid-val" id="unlockPeer">—</span></div>
+      </div>
+
+      <label>SECRET KEY <span class="hint">// private · never leaves device</span></label>
+      <input type="password" id="unlockSecret" placeholder="your passphrase" autocomplete="current-password" />
+
+      <button type="submit" class="primary" id="unlockBtn">UNLOCK</button>
+      <div class="handshake" id="unlockHandshake"></div>
+      <div class="err" id="unlockErr"></div>
+      <button type="button" class="linkish" id="switchIdentity">use a different identity</button>
+    </form>
+  </div>
+
   <!-- ===== chat ===== -->
   <div id="chat" class="chat-wrap hidden">
     <header class="chat-head">
