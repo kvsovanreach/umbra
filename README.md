@@ -21,7 +21,7 @@ your keys are derived in the browser and never leave the device.
 
 <br />
 
-**[Live demo](https://kvsovanreach.github.io/umbra/)** ·
+**[Live demo](https://umbra.sovanreach.com/)** ·
 [How it works](#how-it-works) ·
 [Security model](#security-model) ·
 [Setup](#setup) ·
@@ -238,8 +238,9 @@ window.FIREBASE_CONFIG = {
 What the key *does* allow is unlimited anonymous token minting, so:
 
 - **Restrict it** — Cloud Console → Credentials → your browser key → *Websites* → add
-  `https://<you>.github.io/*` and `http://localhost:8000/*`. Keep **Identity Toolkit API**
-  allowed or sign-in breaks. A speed bump, not a wall: referrers are forgeable.
+  `https://<you>.github.io/*`, `http://localhost:8000/*`, and **every custom domain you
+  serve from** — a domain that isn't listed fails at "acquiring token". Keep **Identity
+  Toolkit API** allowed or sign-in breaks. A speed bump, not a wall: referrers are forgeable.
 - **Stay on Spark**, or set a budget alert on Blaze.
 - **Add [App Check](https://firebase.google.com/docs/app-check)** if this outgrows a demo — it
   is the only real answer to a forgeable referrer.
@@ -260,6 +261,16 @@ git push -u origin main
 ```
 
 **Settings → Pages → Deploy from a branch → `main` / `root`.** HTTPS is automatic.
+
+**Custom domain (optional).** Set it under *Settings → Pages*, which commits a `CNAME` file,
+then point DNS at Pages with a `CNAME` record to `<you>.github.io`. Two things to expect:
+
+- GitHub starts **301-redirecting** the `github.io` path to your domain the moment `CNAME`
+  lands, so a misconfigured domain takes the old URL down with it.
+- If DNS sits behind a proxy (Cloudflare's orange cloud), leave it **DNS-only** until the
+  certificate is issued — Pages validates over HTTP and the proxy blocks it. Afterwards you
+  can proxy with SSL/TLS set to *Full (strict)*.
+- Add the domain to the **API key referrer list** before you switch, or every login breaks.
 
 ---
 
@@ -353,5 +364,5 @@ No package manager, no bundler, no transpiler. Clone it and open it.
 ---
 
 <div align="center">
-<sub>Built with TweetNaCl · deployed on GitHub Pages · the server still sees nothing</sub>
+<sub>Built with TweetNaCl · served from GitHub Pages · the server still sees nothing</sub>
 </div>
