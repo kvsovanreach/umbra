@@ -161,6 +161,15 @@
           : `this uuid is not active (status: ${acct.state})`);
       }
 
+      // Pre-flight: if this uuid already holds a key, it must be the one we just
+      // derived. The write rule enforces this anyway, but checking first lets us
+      // say "wrong secret" instead of a message that conflates several causes.
+      const myPub = CryptoBox.publicKeyB64(S.keypair);
+      const onFile = await S.db.getPublicKey(uuid);
+      if (onFile && onFile !== myPub) {
+        return fail('wrong secret for this uuid — it is already bound to a different key. check your passphrase.');
+      }
+
       await step(`publishing public key → /users/${uuid}…`);
       try {
         await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair));
@@ -237,6 +246,8 @@
     $('peerName').textContent = S.peer;
     $('peerFp').textContent = fpHex(S.peerPub);
     $('meFp').textContent = fpHex(S.myPub);
+    $('meId').textContent = S.uuid.length > 14 ? S.uuid.slice(0, 8) + '…' : S.uuid;
+    $('meId').title = S.uuid;
     drawIdenticon($('peerIdenticon'), S.peerPub);
     initVerification();
     renderPeerAlert();

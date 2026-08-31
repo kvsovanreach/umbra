@@ -292,6 +292,12 @@ then point DNS at Pages with a `CNAME` record to `<you>.github.io`. Two things t
 > Same UUID + same secret = same identity anywhere. Nothing is recoverable if you lose
 > either — **keep your UUID**, since a 36-character id is not something you will memorise.
 
+**Whose session is this?** The security bar names the identity you are currently acting as,
+not just its fingerprint. Swapping the two UUIDs and entering the *other* person's passphrase
+is a valid login — **as them** — because a UUID plus its secret *is* that identity. The bar
+makes which one unmistakable. A wrong passphrase for a UUID that already holds a key is
+refused outright, before anything is written.
+
 **Refreshing the page** shows a lock screen asking only for your passphrase — the two UUIDs
 and the database URL are remembered, the secret never is. Your key fingerprint appears as you
 type, so a mistyped passphrase is visible *before* you connect. **leave** locks the session the
