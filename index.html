@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>aiclab · encrypted chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- ===== login ===== -->
+  <div id="login" class="login-wrap">
+    <form class="login-card" id="loginForm" autocomplete="off">
+      <div class="brand-row">
+        <div class="brand"><span class="lockmark">🔐</span><b>aiclab<span>::</span>chat</b></div>
+        <div class="proto"><span>X25519</span><span>POLY1305</span><span>E2E</span></div>
+      </div>
+      <div class="tagline">// peer-to-peer encryption · zero-knowledge datastore · no backend</div>
+
+      <div class="fingerprint">
+        <canvas class="identicon" id="myIdenticon" width="9" height="9"></canvas>
+        <div class="fp-meta">
+          <div class="fp-label">YOUR KEY FINGERPRINT</div>
+          <div class="fp-hex" id="myFp">— — — —</div>
+          <div class="fp-hint">derived live from your secret · share the visual to verify identity</div>
+        </div>
+      </div>
+
+      <label>YOUR UUID <span class="hint">// public identity · use gen, not a name</span></label>
+      <div class="row">
+        <input type="text" id="uuid" placeholder="click gen — long random id" spellcheck="false" />
+        <button type="button" class="ghost" id="genUuid">gen</button>
+      </div>
+
+      <label>SECRET KEY <span class="hint">// private · never leaves device</span></label>
+      <input type="password" id="secret" placeholder="long unique passphrase" />
+
+      <label>PEER UUID <span class="hint">// who you're messaging</span></label>
+      <input type="text" id="peer" placeholder="their UUID" spellcheck="false" />
+
+      <details class="advanced"><summary>▸ firebase database url</summary>
+        <input type="text" id="dburl" placeholder="https://your-project-default-rtdb.firebaseio.com" spellcheck="false" />
+      </details>
+
+      <label class="remember"><input type="checkbox" id="remember" /> remember uuid &amp; peer on this device</label>
+      <button type="submit" class="primary" id="connect">ESTABLISH SECURE CHANNEL</button>
+      <div class="handshake" id="handshake"></div>
+      <div class="err" id="loginErr"></div>
+      <div class="note">Your secret derives the keypair locally. The store only ever sees <b>ciphertext</b> + public keys.</div>
+    </form>
+  </div>
+
+  <!-- ===== chat ===== -->
+  <div id="chat" class="chat-wrap hidden">
+    <header class="chat-head">
+      <div class="peer-info" id="openVerify" title="tap to verify identity">
+        <canvas class="identicon-sm" id="peerIdenticon" width="9" height="9"></canvas>
+        <div class="peer-meta">
+          <div class="peer-name"><span id="peerName">peer</span><span class="verify unverified" id="verifyBadge">! UNVERIFIED</span></div>
+          <div class="peer-sub">fp <span class="fp" id="peerFp">····</span> · shared secret established</div>
+        </div>
+      </div>
+      <div class="head-actions">
+        <span class="status-dot" id="statusDot"><i></i><span id="statusText">live</span></span>
+        <div class="settings-wrap">
+          <button type="button" class="ghost" id="settingsBtn" title="privacy settings">⚙</button>
+          <div class="popover hidden" id="settingsPop">
+            <div class="pop-head">PRIVACY</div>
+            <label class="pop-row">
+              <span><span class="pop-title">Share typing &amp; read status</span><span class="pop-sub">let your peer see when you're typing / have read</span></span>
+              <span class="switch"><input type="checkbox" id="shareStatus" checked /><span class="track"><span class="thumb"></span></span></span>
+            </label>
+            <div class="pop-note">off = you stop broadcasting both. controls only what <b>you</b> reveal.</div>
+          </div>
+        </div>
+        <button type="button" class="ghost" id="logout">leave</button>
+      </div>
+    </header>
+
+    <div class="secbar">
+      <span><b>cipher</b> XSalsa20-Poly1305</span>
+      <span><b>kex</b> X25519 ECDH</span>
+      <span><b>you</b> <em id="meFp">····</em></span>
+      <span class="tip">tip: click any message to reveal its ciphertext</span>
+    </div>
+
+    <div class="messages" id="messages"></div>
+
+    <div class="typing hidden" id="typing"><span class="dots"><i></i><i></i><i></i></span><em id="typingName">peer</em> is typing</div>
+
+    <form class="composer" id="composer">
+      <span class="lockhint">🔒</span>
+      <button type="button" class="icon" id="attach" title="send encrypted image">🖼️</button>
+      <input type="file" id="fileInput" accept="image/*" hidden />
+      <input type="text" id="msgInput" placeholder="type — encrypted before it leaves this device…" autocomplete="off" />
+      <button type="submit" class="send" id="send">↑</button>
+    </form>
+    <div class="img-preview hidden" id="imgPreview"></div>
+
+    <!-- verify modal -->
+    <div class="modal hidden" id="verifyModal">
+      <div class="modal-card">
+        <div class="modal-head"><span>SAFETY NUMBER</span><button type="button" class="ghost" id="closeVerify">✕</button></div>
+        <div class="mitm hidden" id="mitmWarn">⚠ this peer's key changed since you last verified — possible interception. re-verify over a trusted channel.</div>
+        <div class="verify-idents">
+          <div class="vi"><canvas id="vMe" width="9" height="9"></canvas><span class="vlbl">you</span></div>
+          <span class="vsep">↔</span>
+          <div class="vi"><canvas id="vPeer" width="9" height="9"></canvas><span class="vlbl" id="vPeerLbl">peer</span></div>
+        </div>
+        <div class="safety-number" id="safetyNumber"></div>
+        <div class="verify-note">Compare this number — or the two key images — with <b id="vPeerName">peer</b> over a call or in person. If they match, you have a genuine end-to-end channel. You'll be warned if their key ever changes.</div>
+        <button type="button" class="primary" id="markVerified">MARK AS VERIFIED</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/nacl.min.js"></script>
+  <script src="lib/nacl-util.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/crypto.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/firebase.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
