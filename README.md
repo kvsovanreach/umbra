@@ -202,9 +202,16 @@ send or reply until re-enabled"* — checked at connect, again whenever the tab 
 and on a 90-second poll. Re-enable the user and the notice clears on the next check. Messages
 sent to a disabled peer are still encrypted and stored, and arrive once they are back.
 
-The client shows a specific message — *"this uuid is not enabled for access"* — but that is
-only a courtesy. The gate is the `.write` rule on `/users/{uuid}`, keyed on the **path**, not
-on anything the client sends, so a modified client still cannot publish a key.
+The client shows a specific message — *"this uuid is not registered"* — and **fails closed**:
+only an explicit `"active"` is admitted. If the allowlist rules have not been published, the
+client says so and refuses rather than waving everyone through, so the gate cannot silently
+disappear because of a config gap. That is still only a courtesy, though — the real gate is
+the `.write` rule on `/users/{uuid}`, keyed on the **path** rather than on anything the client
+sends, so a modified client cannot publish a key either way.
+
+> **Order matters.** Because the client fails closed, publishing this JS *before* the rules
+> means nobody can connect — they will see *"access control is not configured"*. Add your
+> allowlist entries, publish the rules, then connect.
 
 > **One honest limit:** the rule on `messages` checks the `from` field, which the *sender*
 > supplies. A disabled user who already knows a conversation id could still append by putting

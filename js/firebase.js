@@ -34,17 +34,21 @@ window.FireDB = function (databaseURL, tokenProvider) {
     // write it (rules deny; the Console and Admin SDK bypass rules). This is a UX
     // nicety only — the real gate is the .write rule on /users/{uuid}, so a client
     // that skips or fakes this check still cannot publish a key.
-    //   active     → approved
-    //   disabled   → explicitly turned off
-    //   unlisted   → no entry yet (never approved)
-    //   unreadable → allowlist rules not deployed; defer to the write attempt
+    //   active   → approved
+    //   disabled → explicitly turned off
+    //   unlisted → no entry yet (never approved)
+    //   denied   → allowlist rules not published, so access control isn't configured
+    //   error    → transient (network/5xx)
+    // Callers must treat everything except 'active' as refused. A gate that
+    // no-ops when its backing config is missing is worse than no gate at all.
     getStatus: async (uuid) => {
       try {
         const a = await _req('GET', `allowlist/${uuid}`);
         if (!a) return { state: 'unlisted', label: null };
         return { state: a.status === 'active' ? 'active' : (a.status || 'disabled'), label: a.label || null };
       } catch (e) {
-        return { state: 'unreadable', label: null };
+        const denied = /\b40[13]\b|permission denied/i.test(e.message);
+        return { state: denied ? 'denied' : 'error', label: null };
       }
     },
 

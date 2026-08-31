@@ -119,12 +119,15 @@
       // access gate — the DB rule is the real enforcement, this is for a clear message
       await hsStep('checking account access…');
       const acct = await S.db.getStatus(uuid);
-      // default-deny: anything that isn't an explicit 'active' is refused, so a
-      // future status value ('pending', 'suspended', …) fails closed, not open.
-      if (acct.state !== 'active' && acct.state !== 'unreadable') {
+      // default-deny: only an explicit 'active' gets through. Anything else —
+      // including "the allowlist rules aren't published" — is refused, so the
+      // gate can never silently disappear because of a config gap.
+      if (acct.state !== 'active') {
         return fail(
           acct.state === 'disabled' ? 'this uuid has been disabled — contact the operator to re-enable it'
-          : acct.state === 'unlisted' ? 'this uuid is not enabled for access — ask the operator to activate it'
+          : acct.state === 'unlisted' ? 'this uuid is not registered — ask the operator to add it to the allowlist'
+          : acct.state === 'denied' ? 'access control is not configured — the allowlist rules have not been published to this database'
+          : acct.state === 'error' ? 'could not verify access — check your connection and try again'
           : `this uuid is not active (status: ${acct.state})`);
       }
 
@@ -192,11 +195,11 @@
   }
 
   // ---------- peer access notice ----------
-  // 'unreadable' means the allowlist rules aren't deployed — say nothing rather
-  // than cry wolf. Anything else that isn't 'active' means the peer can't write.
+  // 'denied'/'error' are our own config or network problems, not the peer's —
+  // stay quiet rather than cry wolf. Anything else means the peer can't write.
   function renderPeerAlert() {
     const el = $('peerAlert'), st = S.peerState;
-    if (st === 'active' || st === 'unreadable') { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    if (st === 'active' || st === 'denied' || st === 'error') { el.classList.add('hidden'); el.innerHTML = ''; return; }
     const who = `<b>${esc(S.peer.length > 14 ? S.peer.slice(0, 10) + '…' : S.peer)}</b>`;
     const msg = st === 'disabled'
       ? `${who} has been disabled by the operator — they can't send or reply until re-enabled.`
