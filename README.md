@@ -29,7 +29,7 @@ your keys are derived in the browser and never leave the device.
 
 <br />
 
-<img src="assets/screenshot.png" width="880" alt="Umbra login and chat screens" />
+<img src="assets/screenshot.png" width="880" alt="Umbra lock screen and encrypted conversation" />
 
 </div>
 
@@ -58,6 +58,8 @@ sequenceDiagram
     participant B as Bob · browser
 
     Note over A,B: PBKDF2-SHA256(secret, salt = uuid, 250k) → X25519 keypair
+    A->>DB: GET /allowlist/{uuidA}
+    DB-->>A: status · refused unless "active"
     A->>DB: PUT /users/{uuidA} · publicKey only
     B->>DB: PUT /users/{uuidB} · publicKey only
     A->>DB: GET /users/{uuidB}
@@ -86,6 +88,7 @@ cannot even distinguish an image from a line of text.
 | Identity binding | Public keys are **write-once**, blocking key substitution |
 | Membership | Operator allowlist — a UUID cannot publish a key until approved by hand |
 | Verification | Signal-style 12-group safety number + TOFU key-change alert |
+| Session | Keys live in memory only; auto-lock drops them after 30 min idle |
 | Transport | HTTPS, required — WebCrypto refuses to run outside a secure context |
 
 The per-UUID salt means an attacker must attack each identity separately: no rainbow tables,
@@ -335,9 +338,10 @@ passphrase is written to neither, at any point.
 **⚠️ Still exposed**
 
 - **Metadata** — anyone who knows both UUIDs can compute the path and see timestamps and sizes
-- **Identity squatting** — an *unclaimed* UUID can be taken; your peer would then encrypt to the squatter
+- **Identity squatting** — an *unclaimed* UUID can be taken, and your peer would then encrypt to the squatter. Now limited to **approved users**, since publishing a key requires an allowlist entry
 - **No forward secrecy** — keys are static; a leaked secret exposes past messages
-- **Spam** — any authed client that can compute a path may append; injected junk is permanent
+- **Spam** — an *approved* client that can compute a path may append, including under someone else's `from`; injected junk is permanent
+- **Passphrase strength** — if a UUID leaks, its public key can be read and the passphrase attacked **offline**. PBKDF2 250k makes this ~2,900 years for four random words and seconds for a dictionary word
 - **Open sign-up** — auth proves nothing about *who* is asking, though the allowlist gates what an anonymous token may actually do
 
 </td></tr>
@@ -366,10 +370,11 @@ js/config.js        Firebase URL + API key (public by design)
 js/crypto.js        PBKDF2 derivation, nacl.box, hashed conv ids, safety numbers
 js/auth.js          anonymous Firebase Auth over REST + token refresh
 js/firebase.js      raw REST client + live EventSource stream, auto-reconnect
-js/app.js           UI wiring, identicons, ciphertext peek, scramble reveal
+js/app.js           views, access gate, auto-lock, identicons, ciphertext peek
 lib/                vendored TweetNaCl + util — the only dependencies, both offline
-assets/             icon set and screenshots
-firebase.rules.json database rules, including the operator allowlist
+firebase.rules.json database rules: allowlist, write-once keys, append-only messages
+assets/             icon set (svg · ico · apple-touch · 512) and the screenshot
+CNAME               custom domain for GitHub Pages
 ```
 
 No package manager, no bundler, no transpiler. Clone it and open it.

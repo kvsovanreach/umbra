@@ -270,7 +270,10 @@
       },
       onTyping: (uuid, ts) => { if (uuid === S.peer) showTyping(ts); },
       onRead: (uuid, ts) => { if (uuid === S.peer) { S.peerRead = Math.max(S.peerRead, ts || 0); render(); } },
-    }, (up) => $('statusDot').classList.toggle('on', up));
+    }, (up) => {
+      $('statusDot').classList.toggle('on', up);
+      $('statusText').textContent = up ? 'live' : 'offline';   // the dot alone read as connected
+    });
 
     S.db.getMessages(S.cid).then((list) => {
       list.forEach((m) => S.msgs.set(m.id, m));
