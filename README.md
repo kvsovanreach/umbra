@@ -77,6 +77,19 @@ cannot even distinguish an image from a line of text.
 
 ---
 
+## Features
+
+- **Encrypted text & images** — every message is a sealed JSON envelope; type and mime are hidden inside the ciphertext. Images can be **pasted** or attached, are downscaled client-side, and open **full-screen** on tap.
+- **Reply / quote** — quote any message; the snippet travels *inside* the ciphertext and jumps to the original when tapped.
+- **Reactions** — a small emoji set, each reaction **individually encrypted** (`{n,c}`) — the server never learns which emoji.
+- **Copy & links** — copy message text; bare URLs become clickable. **No link previews are ever fetched** — that would leak to a third party and break the zero-knowledge promise.
+- **Encrypted local history cache** — messages are cached in IndexedDB **sealed under a key derived from your passphrase**, so a conversation reopens instantly and reads offline, with nothing decryptable at rest.
+- **Themes** — independent **dark / light** mode × **accent** (cyan · turquoise · indigo · teal · lavender), remembered across sessions.
+- **Presence** — typing indicator and read receipts (both toggleable in settings), in-thread **date separators**, and a live connection indicator.
+- **Verification** — Signal-style 12-group safety number + identicon fingerprint + TOFU key-change alert.
+
+---
+
 ## Security model
 
 | Layer | Mechanism |
@@ -89,6 +102,7 @@ cannot even distinguish an image from a line of text.
 | Membership | Operator allowlist — a UUID cannot publish a key until approved by hand |
 | Verification | Signal-style 12-group safety number + TOFU key-change alert |
 | Session | Keys live in memory only; auto-lock drops them after 30 min idle |
+| At rest (local) | History cache is sealed in IndexedDB with XSalsa20-Poly1305 under a passphrase-derived key |
 | Transport | HTTPS, required — WebCrypto refuses to run outside a secure context |
 
 The per-UUID salt means an attacker must attack each identity separately: no rainbow tables,
@@ -151,6 +165,14 @@ Copy the URL, e.g. `https://your-project-default-rtdb.firebaseio.com`.
           "$uuid": {
             ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active'",
             ".validate": "newData.isNumber()"
+          }
+        },
+        "reactions": {
+          "$mid": {
+            "$uuid": {
+              ".write": "auth != null && root.child('allowlist').child($uuid).child('status').val() === 'active'",
+              ".validate": "newData.hasChildren(['n','c']) && newData.child('n').isString() && newData.child('c').isString() && newData.child('c').val().length <= 2000"
+            }
           }
         }
       }
@@ -290,7 +312,8 @@ then point DNS at Pages with a `CNAME` record to `<you>.github.io`. Two things t
    *"peer hasn't joined"* — expected; it still published *your* key. Have them connect, then retry.
 4. **Verify once.** Tap the peer's identicon and compare the safety number over a call or in
    person. This is what catches a substituted key.
-5. Chat. Click any bubble to reveal its raw ciphertext.
+5. Chat — text, images (paste or attach), replies, reactions, and links. Tap an image to open
+   it full-screen. Hover a message for its reply / copy / react actions.
 
 > Same UUID + same secret = same identity anywhere. Nothing is recoverable if you lose
 > either — **keep your UUID**, since a 36-character id is not something you will memorise.
@@ -375,12 +398,13 @@ replacement — that adds forward secrecy, verified identities, and a trusted se
 index.html          login + chat UI, single document
 css/style.css       crypto-terminal design system · fully responsive
 js/config.js        Firebase URL + API key (public by design)
-js/crypto.js        PBKDF2 derivation, nacl.box, hashed conv ids, safety numbers
+js/crypto.js        PBKDF2 derivation, nacl.box, hashed conv ids, safety numbers, local-cache seal
 js/auth.js          anonymous Firebase Auth over REST + token refresh
-js/firebase.js      raw REST client, key-paged reads, three scoped live streams
-js/app.js           views, access gate, auto-lock, identicons, ciphertext peek
+js/firebase.js      raw REST client, key-paged reads, four scoped live streams
+js/cache.js         encrypted IndexedDB history cache (sealed under the session key)
+js/app.js           views, access gate, auto-lock, identicons, reply/react/copy, image viewer, themes
 lib/                vendored TweetNaCl + util — the only dependencies, both offline
-firebase.rules.json database rules: allowlist, write-once keys, append-only messages
+firebase.rules.json database rules: allowlist, write-once keys, append-only messages, reactions
 assets/             icon set (svg · ico · apple-touch · 512) and the screenshot
 CNAME               custom domain for GitHub Pages
 ```
