@@ -355,7 +355,11 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
 .msg:hover .msg-actions { display: flex; }
 .ma { background: transparent; color: var(--dim); font-size: 11px; width: 22px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; }
 .ma:hover { color: var(--text); background: var(--bg-2); }
-@media (hover: none) { .msg-actions { display: flex; opacity: .7; } }
+/* touch has no hover — reveal a single message's actions by tapping it */
+@media (hover: none) {
+  .msg-actions { display: none; }
+  .msg.tapped .msg-actions { display: flex; }
+}
 
 /* quoted-reply preview inside a bubble */
 .quote { display: block; border-left: 2px solid var(--cyan); background: rgba(var(--accent-rgb),.08); border-radius: 5px; padding: 4px 8px; margin-bottom: 6px; cursor: pointer; }

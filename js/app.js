@@ -38,7 +38,7 @@
               peerRead: 0, verified: false, typingThrottle: 0, typingTimer: null, readThrottle: 0,
               peerState: 'active', peerWatch: null,
               dec: new Map(), oldestKey: null, hasMore: false, loadingMore: false,
-              reacts: new Map(), replying: null, reactTarget: null, cacheKey: null };
+              reacts: new Map(), replying: null, reactTarget: null, cacheKey: null, tapped: null };
 
   // ---------- key fingerprint + identicon ----------
   function fpHex(pubB64) {
@@ -287,7 +287,7 @@
     $('statusDot').classList.add('on');
     S.msgs.clear(); S.dec.clear(); S.loaded = false; S.peerRead = 0;
     S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
-    S.reacts.clear(); cancelReply(); hideEmojiBar();
+    S.reacts.clear(); cancelReply(); hideEmojiBar(); S.tapped = null;
     $('messages').innerHTML = '<div class="sys">◇ loading encrypted history…</div>';
 
     S.es = S.db.stream(S.cid, {
@@ -449,7 +449,7 @@
       else { bodyHTML = linkify(esc(env.body || '')); plainHTML = `${quote}<span class="body">${bodyHTML}</span>${time}`; }
       S.view.set(id, { plain: plainHTML, cipher: cipherHTML,
         text: env && env.t === 'text' ? env.body : null, html: bodyHTML });
-      const cls = 'msg ' + (mine ? 'out' : 'in') + (env ? '' : ' bad');
+      const cls = 'msg ' + (mine ? 'out' : 'in') + (env ? '' : ' bad') + (id === S.tapped ? ' tapped' : '');
       const show = plainHTML;
       const acts = env ? '<div class="msg-actions">'
         + '<button type="button" class="ma" data-act="reply" title="reply">↩</button>'
@@ -579,8 +579,13 @@
     }
     const q = e.target.closest('.quote');
     if (q) { gotoMessage(q.dataset.goto); return; }
-    // image → full-screen viewer; plain text → do nothing
-    if (e.target.tagName === 'IMG' && e.target.closest('.msg')) openLightbox(e.target.src);
+    // image → full-screen viewer
+    if (e.target.tagName === 'IMG' && e.target.closest('.msg')) { openLightbox(e.target.src); return; }
+    // tap a bubble to reveal its actions on touch (no-op visual on hover devices)
+    const el = e.target.closest('.msg'); if (!el) return;
+    const id = el.dataset.id;
+    S.tapped = (S.tapped === id) ? null : id;
+    render();
   });
 
   // ---------- image lightbox ----------
@@ -840,7 +845,7 @@
     S.peerState = 'active'; $('peerAlert').classList.add('hidden'); $('peerAlert').innerHTML = '';
     S.secret = null; S.keypair = null; S.peerPub = null; S.cacheKey = null;
     S.msgs.clear(); S.view.clear(); S.peeking.clear(); S.dec.clear();
-    S.reacts.clear(); cancelReply(); hideEmojiBar();
+    S.reacts.clear(); cancelReply(); hideEmojiBar(); S.tapped = null;
     S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
     $('messages').innerHTML = '';
     $('msgInput').value = ''; clearPreview();
