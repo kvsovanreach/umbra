@@ -526,27 +526,38 @@
     if (!e.target.closest('.settings-wrap')) { $('settingsPop').classList.add('hidden'); $('themePop').classList.add('hidden'); }
   });
 
-  // ---------- appearance / theme ----------
-  // data-theme on <html> is set pre-paint by the inline head script; this keeps
-  // the picker in sync, persists changes, and repaints the mobile chrome color.
-  const THEMES = ['default', 'turquoise', 'indigo', 'teal', 'lavender', 'light', 'dark'];
-  const THEME_META = { light: '#eef1f7', dark: '#000000' };   // others share the dark chrome
-  function applyTheme(name) {
-    if (!THEMES.includes(name)) name = 'default';
+  // ---------- appearance: mode (dark/light) × accent ----------
+  // The inline head script sets data-mode/data-accent pre-paint; this keeps the
+  // picker in sync, persists each axis, and repaints the mobile chrome color.
+  const MODES = ['dark', 'light'];
+  const ACCENTS = ['cyan', 'turquoise', 'indigo', 'teal', 'lavender'];
+  let curMode = 'dark', curAccent = 'cyan';
+  function applyTheme(mode, accent) {
+    curMode = MODES.includes(mode) ? mode : 'dark';
+    curAccent = ACCENTS.includes(accent) ? accent : 'cyan';
     const root = document.documentElement;
-    if (name === 'default') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', name);
-    try { localStorage.setItem('umbra-theme', name); } catch (e) {}
+    root.setAttribute('data-mode', curMode);
+    root.setAttribute('data-accent', curAccent);
+    try { localStorage.setItem('umbra-mode', curMode); localStorage.setItem('umbra-accent', curAccent); } catch (e) {}
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', THEME_META[name] || '#07090e');
-    document.querySelectorAll('#themeGrid .swatch').forEach((b) =>
-      b.classList.toggle('active', b.dataset.theme === name));
+    if (meta) meta.setAttribute('content', curMode === 'light' ? '#eef1f7' : '#07090e');
+    document.querySelectorAll('#modeToggle button').forEach((b) => b.classList.toggle('active', b.dataset.mode === curMode));
+    document.querySelectorAll('#accentGrid .swatch').forEach((b) => b.classList.toggle('active', b.dataset.accent === curAccent));
   }
-  $('themeGrid').addEventListener('click', (e) => {
-    const b = e.target.closest('.swatch');
-    if (b) applyTheme(b.dataset.theme);
-  });
-  (function () { try { applyTheme(localStorage.getItem('umbra-theme') || 'default'); } catch (e) { applyTheme('default'); } })();
+  $('modeToggle').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) applyTheme(b.dataset.mode, curAccent); });
+  $('accentGrid').addEventListener('click', (e) => { const b = e.target.closest('.swatch'); if (b) applyTheme(curMode, b.dataset.accent); });
+  (function () {
+    let mode = null, accent = null;
+    try { mode = localStorage.getItem('umbra-mode'); accent = localStorage.getItem('umbra-accent'); } catch (e) {}
+    if (!mode && !accent) {   // migrate the old single-key theme, then retire it
+      let old = null; try { old = localStorage.getItem('umbra-theme'); } catch (e) {}
+      const map = { turquoise: 'turquoise', indigo: 'indigo', teal: 'teal', lavender: 'lavender' };
+      mode = old === 'light' ? 'light' : 'dark';
+      accent = map[old] || 'cyan';
+      try { localStorage.removeItem('umbra-theme'); } catch (e) {}
+    }
+    applyTheme(mode || 'dark', accent || 'cyan');
+  })();
 
   // one delegated handler for the whole thread: load-more, links, reactions,
   // per-message actions, quote-jumps, and finally click-to-peek-ciphertext

@@ -28,11 +28,20 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
   <script>
-    // Apply the saved accent/light theme before first paint, so switching
-    // views (login → chat) and reloads never flash the default palette.
+    // Apply the saved mode + accent before first paint, so switching views
+    // (login → chat) and reloads never flash the default palette. Migrates the
+    // old single "umbra-theme" key if present.
     try {
-      var t = localStorage.getItem('umbra-theme');
-      if (t && t !== 'default') document.documentElement.setAttribute('data-theme', t);
+      var d = document.documentElement;
+      var m = localStorage.getItem('umbra-mode');
+      var a = localStorage.getItem('umbra-accent');
+      if (!m && !a) {
+        var old = localStorage.getItem('umbra-theme');
+        m = (old === 'light') ? 'light' : 'dark';
+        a = (old && old !== 'light' && old !== 'dark' && old !== 'default') ? old : 'cyan';
+      }
+      d.setAttribute('data-mode', m || 'dark');
+      d.setAttribute('data-accent', a || 'cyan');
     } catch (e) {}
   </script>
 </head>
@@ -129,14 +138,17 @@
           <button type="button" class="hbtn" id="themeBtn" title="appearance">🎨</button>
           <div class="popover hidden" id="themePop">
             <div class="pop-head">APPEARANCE</div>
-            <div class="theme-grid" id="themeGrid">
-              <button type="button" class="swatch" data-theme="default"><span class="chip t-default"></span><span class="nm">cyan</span></button>
-              <button type="button" class="swatch" data-theme="turquoise"><span class="chip t-turquoise"></span><span class="nm">turq</span></button>
-              <button type="button" class="swatch" data-theme="indigo"><span class="chip t-indigo"></span><span class="nm">indigo</span></button>
-              <button type="button" class="swatch" data-theme="teal"><span class="chip t-teal"></span><span class="nm">teal</span></button>
-              <button type="button" class="swatch" data-theme="lavender"><span class="chip t-lavender"></span><span class="nm">lav</span></button>
-              <button type="button" class="swatch" data-theme="light"><span class="chip t-light"></span><span class="nm">light</span></button>
-              <button type="button" class="swatch" data-theme="dark"><span class="chip t-dark"></span><span class="nm">dark</span></button>
+            <div class="mode-toggle" id="modeToggle">
+              <button type="button" data-mode="dark">☾ dark</button>
+              <button type="button" data-mode="light">☀ light</button>
+            </div>
+            <div class="sub-head">ACCENT</div>
+            <div class="theme-grid" id="accentGrid">
+              <button type="button" class="swatch" data-accent="cyan"><span class="chip a-cyan"></span><span class="nm">cyan</span></button>
+              <button type="button" class="swatch" data-accent="turquoise"><span class="chip a-turquoise"></span><span class="nm">turq</span></button>
+              <button type="button" class="swatch" data-accent="indigo"><span class="chip a-indigo"></span><span class="nm">indigo</span></button>
+              <button type="button" class="swatch" data-accent="teal"><span class="chip a-teal"></span><span class="nm">teal</span></button>
+              <button type="button" class="swatch" data-accent="lavender"><span class="chip a-lavender"></span><span class="nm">lav</span></button>
             </div>
           </div>
         </div>
