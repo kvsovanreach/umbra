@@ -15,10 +15,14 @@ window.FireDB = function (databaseURL, tokenProvider) {
   };
 
   async function _req(method, path, body, query) {
+    // `body != null` (not truthy) so a legit falsy value like ts=0 (the
+    // "stop typing" ping) is still sent; only null/undefined mean no body,
+    // keeping GET and DELETE body-less.
+    const hasBody = body != null;
     const res = await fetch(`${base}/${path}.json${qs(query)}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
+      headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
+      body: hasBody ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
     return res.status === 204 ? null : res.json();

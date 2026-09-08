@@ -214,7 +214,7 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
 .linkish:hover { color: var(--dim); }
 
 /* ============ CHAT ============ */
-.chat-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; height: 100dvh; max-width: 760px; margin: 0 auto; }
+.chat-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; height: 100dvh; max-width: 960px; margin: 0 auto; }
 .chat-head {
   /* backdrop-filter makes this a stacking context; z-index lifts it (and the
      popovers it contains) above the messages list, which comes later in DOM */
@@ -431,7 +431,7 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
 /* ======================= RESPONSIVE ======================= */
 
 /* tablet / narrow laptop — chat stops being a centred column */
-@media (max-width: 780px) {
+@media (max-width: 980px) {
   .chat-wrap { max-width: 100%; }
 }
 
