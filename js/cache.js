@@ -68,5 +68,16 @@ window.LocalCache = (function () {
     });
   }
 
-  return { put, get, clearAll };
+  // close the connection and delete the whole database — for a full reset,
+  // robust even if the store schema is corrupt
+  async function wipe() {
+    try { const db = await open(); db.close(); } catch (e) {}
+    dbp = null;
+    return new Promise((resolve) => {
+      let req; try { req = indexedDB.deleteDatabase(DB); } catch (e) { return resolve(); }
+      req.onsuccess = req.onerror = req.onblocked = () => resolve();
+    });
+  }
+
+  return { put, get, clearAll, wipe };
 })();

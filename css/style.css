@@ -15,7 +15,10 @@
   --green: #43e5a0;
   --red: #ff6b81;
   --amber: #ffcf6b;
-  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Latin renders in JetBrains Mono; Khmer glyphs (absent from it) fall back to
+     Battambang per-glyph, so mixed text stays consistent instead of using an
+     oversized system Khmer font */
+  --mono: 'JetBrains Mono', 'Battambang', ui-monospace, 'SF Mono', Menlo, monospace;
   --grad: linear-gradient(120deg, var(--cyan), var(--violet));
 
   /* accent channels — glows/tints read from these so one override repaints
@@ -212,8 +215,9 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
 .peer-sub { font-size: 10px; color: var(--faint); margin-top: 2px; letter-spacing: .5px; }
 .peer-sub .fp { color: var(--cyan); }
 .head-actions { display: flex; align-items: center; gap: 9px; flex: none; }
-.status-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 9px; color: var(--dim); letter-spacing: .5px; }
-.status-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+/* connection indicator — a square to match the header icon buttons */
+.status-dot { width: 34px; height: 34px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; background: var(--bg-2); border: 1px solid var(--border); }
+.status-dot i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); transition: .2s; }
 .status-dot.on i { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2.2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
@@ -306,6 +310,9 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
 .pop-sub { display: block; font-size: 9px; color: var(--faint); margin-top: 2px; line-height: 1.4; }
 .pop-note { font-size: 9px; color: var(--faint); margin-top: 10px; line-height: 1.5; border-top: 1px solid var(--border); padding-top: 9px; }
 .pop-note b { color: var(--dim); }
+.pop-head.data { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.reset-btn { width: 100%; padding: 9px; margin-top: 2px; font-family: var(--mono); font-size: 11px; letter-spacing: .5px; color: var(--amber); background: rgba(255,207,107,.08); border: 1px solid rgba(255,207,107,.3); border-radius: 9px; }
+.reset-btn:hover { background: rgba(255,207,107,.16); color: var(--amber); }
 .switch { flex: none; }
 .switch input { display: none; }
 .switch .track { display: block; width: 38px; height: 21px; border-radius: 21px; background: var(--bg-2); border: 1px solid var(--border-2); position: relative; transition: .18s; }
@@ -355,11 +362,65 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
 .msg:hover .msg-actions { display: flex; }
 .ma { background: transparent; color: var(--dim); font-size: 11px; width: 22px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; }
 .ma:hover { color: var(--text); background: var(--bg-2); }
-/* touch has no hover — reveal a single message's actions by tapping it */
-@media (hover: none) {
-  .msg-actions { display: none; }
-  .msg.tapped .msg-actions { display: flex; }
+/* touch has no hover — the in-bubble toolbar is replaced by a centered action
+   sheet (opened by tapping a message), so short bubbles never clip it */
+@media (hover: none) { .msg-actions { display: none; } }
+
+/* touch action sheet */
+.action-card {
+  width: 260px; max-width: 82vw; padding: 14px;
+  background: linear-gradient(180deg, var(--panel), var(--panel-deep));
+  border: 1px solid var(--border-2); border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0,0,0,.6);
 }
+.action-preview {
+  font-size: 11px; color: var(--dim); background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; margin-bottom: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.action-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.action-btns button {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 13px 6px;
+  font-size: 10px; letter-spacing: .5px; color: var(--text);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 11px;
+}
+.action-btns button span { font-size: 21px; line-height: 1; }
+.action-btns button:active { border-color: var(--cyan); background: var(--panel-2); }
+.action-cancel {
+  width: 100%; margin-top: 10px; padding: 11px; font-size: 11px; letter-spacing: .5px;
+  color: var(--dim); background: transparent; border: 1px solid var(--border); border-radius: 10px;
+}
+.action-cancel:active { color: var(--text); }
+
+/* custom confirm dialog */
+.confirm-card {
+  width: 340px; max-width: 88vw; padding: 20px;
+  background: linear-gradient(180deg, var(--panel), var(--panel-deep));
+  border: 1px solid var(--border-2); border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0,0,0,.6);
+}
+.confirm-title { font-size: 13px; font-weight: 700; letter-spacing: .5px; color: var(--text); margin-bottom: 10px; }
+.confirm-msg { font-size: 11.5px; line-height: 1.6; color: var(--dim); margin-bottom: 18px; }
+.confirm-msg b { color: var(--text); }
+.confirm-btns { display: flex; gap: 10px; }
+.confirm-btns .ghost { flex: 1; min-height: 42px; padding: 11px; font-size: 12px; }
+.confirm-ok {
+  flex: 1; padding: 11px; border-radius: 10px; font-size: 12px; font-weight: 700; letter-spacing: .5px;
+  color: var(--amber); background: rgba(255,207,107,.10); border: 1px solid rgba(255,207,107,.35);
+}
+.confirm-ok:hover { background: rgba(255,207,107,.18); }
+
+/* jump-to-latest button — floats above the composer when scrolled up */
+.scroll-bottom {
+  position: absolute; right: 16px; bottom: calc(74px + env(safe-area-inset-bottom)); z-index: 7;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--border-2); color: var(--text);
+  font-size: 18px; box-shadow: 0 8px 22px rgba(0,0,0,.45);
+  transition: opacity .18s, transform .18s;
+}
+.scroll-bottom:hover { border-color: var(--cyan); color: var(--cyan); }
+.scroll-bottom.off { opacity: 0; pointer-events: none; transform: translateY(8px) scale(.9); }
 
 /* quoted-reply preview inside a bubble */
 .quote { display: block; border-left: 2px solid var(--cyan); background: rgba(var(--accent-rgb),.08); border-radius: 5px; padding: 4px 8px; margin-bottom: 6px; cursor: pointer; }
@@ -432,10 +493,11 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
   .brand b { font-size: 14px; }
   .proto span { font-size: 7px; padding: 2px 5px; }
 
-  /* >=16px stops iOS zooming the whole page in on focus */
-  input[type=text], input[type=password] { font-size: 16px; padding: 12px; }
-  #uuid, #peer { font-size: 16px; letter-spacing: -.4px; }
-  .advanced input { font-size: 14px; }
+  /* kept consistent with the rest of the UI; iOS may zoom slightly on focus
+     since this is under 16px, an accepted trade-off for a less oversized field */
+  input[type=text], input[type=password] { font-size: 14px; padding: 12px; }
+  #uuid, #peer { font-size: 14px; letter-spacing: -.3px; }
+  .advanced input { font-size: 13px; }
   label { margin: 13px 0 6px; }
 
   /* finger-sized targets */
@@ -448,11 +510,15 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
   .chat-head { gap: 8px; padding-left: calc(12px + env(safe-area-inset-left)); padding-right: calc(12px + env(safe-area-inset-right)); }
   .identicon-sm { width: 34px; height: 34px; }
   .peer-name { font-size: 13px; }
-  .peer-name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* cap the peer uuid so it shows a short prefix + trailing … (4 header buttons
+     leave little room) */
+  .peer-name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 32vw; }
+  .peer-name .verify { display: none; }        /* status still reachable via the verify modal */
   .peer-sub { font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .status-dot span { display: none; }        /* keep the pulsing dot, drop "live" */
+  .peer-sub .sub-extra { display: none; }        /* keep just the fingerprint */
   .head-actions { gap: 5px; }
-  .hbtn { width: 36px; height: 36px; font-size: 16px; }
+  .hbtn, .status-dot { width: 36px; height: 36px; }
+  .hbtn { font-size: 16px; }
 
   /* secbar scrolls horizontally instead of hiding facts outright */
   .secbar { overflow-x: auto; scrollbar-width: none; padding: 6px 12px; }
@@ -468,12 +534,17 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--accent
   .msg { max-width: 88%; }
 
   .composer { gap: 7px; padding-left: calc(11px + env(safe-area-inset-left)); padding-right: calc(11px + env(safe-area-inset-right)); }
-  .composer input[type=text] { font-size: 16px; }
+  .composer input[type=text] { font-size: 14px; }
   .icon { font-size: 20px; padding: 6px; }
   .send { width: 44px; height: 44px; }
 
   .typing { padding: 4px 14px 8px; }
   .img-preview { padding: 10px 12px; }
+
+  /* jump-to-latest sits a touch higher (taller mobile composer) and inset less */
+  .scroll-bottom { right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); width: 42px; height: 42px; }
+  /* keep the reaction popover comfortably on-screen */
+  .emoji-bar button { font-size: 20px; padding: 5px 6px; }
 
   /* popover was a fixed 250px — could hang off a 320px screen */
   .popover { width: min(76vw, 250px); }

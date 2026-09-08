@@ -4,6 +4,7 @@
  */
 (function () {
   const $ = (id) => document.getElementById(id);
+  const isTouch = () => !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
   const util = nacl.util;
   const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // time only for today, else prefix the date so yesterday ≠ today at a glance
@@ -38,7 +39,7 @@
               peerRead: 0, verified: false, typingThrottle: 0, typingTimer: null, readThrottle: 0,
               peerState: 'active', peerWatch: null,
               dec: new Map(), oldestKey: null, hasMore: false, loadingMore: false,
-              reacts: new Map(), replying: null, reactTarget: null, cacheKey: null, tapped: null };
+              reacts: new Map(), replying: null, reactTarget: null, cacheKey: null, actionTarget: null };
 
   // ---------- key fingerprint + identicon ----------
   function fpHex(pubB64) {
@@ -287,7 +288,7 @@
     $('statusDot').classList.add('on');
     S.msgs.clear(); S.dec.clear(); S.loaded = false; S.peerRead = 0;
     S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
-    S.reacts.clear(); cancelReply(); hideEmojiBar(); S.tapped = null;
+    S.reacts.clear(); cancelReply(); hideEmojiBar(); closeActionModal();
     $('messages').innerHTML = '<div class="sys">◇ loading encrypted history…</div>';
 
     S.es = S.db.stream(S.cid, {
@@ -310,7 +311,7 @@
       },
     }, (up) => {
       $('statusDot').classList.toggle('on', up);
-      $('statusText').textContent = up ? 'live' : 'offline';   // the dot alone read as connected
+      $('statusDot').title = up ? 'live' : 'offline';   // text lives in the tooltip now
     }, PAGE);
 
     // instant paint from the encrypted local cache (also works fully offline),
@@ -449,7 +450,7 @@
       else { bodyHTML = linkify(esc(env.body || '')); plainHTML = `${quote}<span class="body">${bodyHTML}</span>${time}`; }
       S.view.set(id, { plain: plainHTML, cipher: cipherHTML,
         text: env && env.t === 'text' ? env.body : null, html: bodyHTML });
-      const cls = 'msg ' + (mine ? 'out' : 'in') + (env ? '' : ' bad') + (id === S.tapped ? ' tapped' : '');
+      const cls = 'msg ' + (mine ? 'out' : 'in') + (env ? '' : ' bad');
       const show = plainHTML;
       const acts = env ? '<div class="msg-actions">'
         + '<button type="button" class="ma" data-act="reply" title="reply">↩</button>'
@@ -520,6 +521,39 @@
   });
   // two header popovers (privacy + appearance) — opening one closes the other,
   // and a click anywhere outside closes both
+  // ---------- custom confirm dialog (returns a Promise<boolean>) ----------
+  let _confirmResolve = null;
+  function askConfirm(opts) {
+    $('confirmTitle').textContent = opts.title || 'Are you sure?';
+    $('confirmMsg').innerHTML = opts.message || '';
+    $('confirmOk').textContent = opts.ok || 'confirm';
+    $('confirmModal').classList.remove('hidden');
+    return new Promise((resolve) => { _confirmResolve = resolve; });
+  }
+  function _closeConfirm(val) {
+    $('confirmModal').classList.add('hidden');
+    if (_confirmResolve) { _confirmResolve(val); _confirmResolve = null; }
+  }
+  $('confirmOk').addEventListener('click', () => _closeConfirm(true));
+  $('confirmCancel').addEventListener('click', () => _closeConfirm(false));
+  $('confirmModal').addEventListener('click', (e) => { if (e.target.id === 'confirmModal') _closeConfirm(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('confirmModal').classList.contains('hidden')) _closeConfirm(false); });
+
+  // clear all local data (encrypted cache + identity + prefs) and reload
+  $('resetApp').addEventListener('click', async () => {
+    $('settingsPop').classList.add('hidden');
+    const ok = await askConfirm({
+      title: 'Clear cache & reset?',
+      message: 'Your saved identity, preferences, and local message cache on <b>this device</b> will be removed, then the app reloads. Your encrypted data on the server is <b>not</b> affected.',
+      ok: 'clear & reset',
+    });
+    if (!ok) return;
+    try { if (window.LocalCache) await LocalCache.wipe(); } catch (e) {}
+    try { localStorage.clear(); } catch (e) {}
+    try { sessionStorage.clear(); } catch (e) {}
+    location.reload();
+  });
+
   $('settingsBtn').addEventListener('click', (e) => { e.stopPropagation(); $('themePop').classList.add('hidden'); $('settingsPop').classList.toggle('hidden'); });
   $('themeBtn').addEventListener('click', (e) => { e.stopPropagation(); $('settingsPop').classList.add('hidden'); $('themePop').classList.toggle('hidden'); });
   document.addEventListener('click', (e) => {
@@ -581,11 +615,42 @@
     if (q) { gotoMessage(q.dataset.goto); return; }
     // image → full-screen viewer
     if (e.target.tagName === 'IMG' && e.target.closest('.msg')) { openLightbox(e.target.src); return; }
-    // tap a bubble to reveal its actions on touch (no-op visual on hover devices)
-    const el = e.target.closest('.msg'); if (!el) return;
-    const id = el.dataset.id;
-    S.tapped = (S.tapped === id) ? null : id;
-    render();
+    // touch: tap a bubble to open the centered action sheet (desktop uses hover)
+    const el = e.target.closest('.msg'); if (!el || !isTouch()) return;
+    openActionModal(el.dataset.id);
+  });
+
+  // ---------- touch action sheet (reply / copy / react) ----------
+  function openActionModal(id) {
+    const m = S.msgs.get(id); if (!m) return;
+    const env = S.dec.get(id);
+    S.actionTarget = id;
+    $('actionPreview').textContent = env ? (env.t === 'image' ? '📷 image' : (env.body || '')) : '🔒 encrypted';
+    $('amCopy').style.display = (env && env.t === 'text') ? '' : 'none';   // copy is text-only
+    $('actionModal').classList.remove('hidden');
+  }
+  function closeActionModal() { $('actionModal').classList.add('hidden'); S.actionTarget = null; }
+  $('actionModal').addEventListener('click', (e) => {
+    if (e.target.id === 'actionModal') { closeActionModal(); return; }   // tap backdrop
+    const b = e.target.closest('button'); if (!b) return;
+    const act = b.dataset.act, id = S.actionTarget;
+    if (act === 'close' || !id) { closeActionModal(); return; }
+    if (act === 'reply') { startReply(id); closeActionModal(); }
+    else if (act === 'copy') { copyMessage(id, null); closeActionModal(); }
+    else if (act === 'react') { openEmojiBar(id, b); closeActionModal(); }   // rect read before close
+  });
+
+  // ---------- scroll-to-bottom button ----------
+  const scrollBtn = $('scrollBottom');
+  function updateScrollBtn() {
+    const box = $('messages');
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 200;
+    scrollBtn.classList.toggle('off', nearBottom);
+  }
+  $('messages').addEventListener('scroll', updateScrollBtn, { passive: true });
+  scrollBtn.addEventListener('click', () => {
+    const box = $('messages');
+    box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
   });
 
   // ---------- image lightbox ----------
@@ -845,7 +910,7 @@
     S.peerState = 'active'; $('peerAlert').classList.add('hidden'); $('peerAlert').innerHTML = '';
     S.secret = null; S.keypair = null; S.peerPub = null; S.cacheKey = null;
     S.msgs.clear(); S.view.clear(); S.peeking.clear(); S.dec.clear();
-    S.reacts.clear(); cancelReply(); hideEmojiBar(); S.tapped = null;
+    S.reacts.clear(); cancelReply(); hideEmojiBar(); closeActionModal();
     S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
     $('messages').innerHTML = '';
     $('msgInput').value = ''; clearPreview();

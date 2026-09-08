@@ -25,7 +25,7 @@
   <meta name="twitter:card" content="summary" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Battambang:wght@400;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
   <script>
     // Apply the saved mode + accent before first paint, so switching views
@@ -129,13 +129,13 @@
         <canvas class="identicon-sm" id="peerIdenticon" width="9" height="9"></canvas>
         <div class="peer-meta">
           <div class="peer-name"><span id="peerName">peer</span><span class="verify unverified" id="verifyBadge">! UNVERIFIED</span></div>
-          <div class="peer-sub">fp <span class="fp" id="peerFp">····</span> · shared secret established</div>
+          <div class="peer-sub">fp <span class="fp" id="peerFp">····</span><span class="sub-extra"> · shared secret established</span></div>
         </div>
       </div>
       <div class="head-actions">
-        <span class="status-dot" id="statusDot"><i></i><span id="statusText">live</span></span>
+        <span class="status-dot" id="statusDot" title="connection"><i></i></span>
         <div class="settings-wrap">
-          <button type="button" class="hbtn" id="themeBtn" title="appearance">🎨</button>
+          <button type="button" class="hbtn" id="themeBtn" title="appearance">◐</button>
           <div class="popover hidden" id="themePop">
             <div class="pop-head">APPEARANCE</div>
             <div class="mode-toggle" id="modeToggle">
@@ -161,6 +161,9 @@
               <span class="switch"><input type="checkbox" id="shareStatus" checked /><span class="track"><span class="thumb"></span></span></span>
             </label>
             <div class="pop-note">off = you stop broadcasting both. controls only what <b>you</b> reveal.</div>
+            <div class="pop-head data">DATA</div>
+            <button type="button" class="reset-btn" id="resetApp">⟳ clear cache &amp; reset</button>
+            <div class="pop-note">Wipes this device's local message cache, saved identity, and preferences, then reloads. Your encrypted data on the server is <b>not</b> affected.</div>
           </div>
         </div>
         <button type="button" class="hbtn danger" id="logout" title="log out" aria-label="log out">⏻</button>
@@ -177,6 +180,7 @@
     <div class="peer-alert hidden" id="peerAlert"></div>
     <div class="idle-warn hidden" id="idleWarn"></div>
     <div class="messages" id="messages"></div>
+    <button type="button" class="scroll-bottom off" id="scrollBottom" title="jump to latest" aria-label="scroll to latest">↓</button>
 
     <div class="typing hidden" id="typing"><span class="dots"><i></i><i></i><i></i></span><em id="typingName">peer</em> is typing</div>
 
@@ -194,6 +198,31 @@
     <div class="img-preview hidden" id="imgPreview"></div>
     <div class="emoji-bar hidden" id="emojiBar"></div>
     <div class="lightbox hidden" id="lightbox"></div>
+
+    <!-- touch action sheet (reply / copy / react) -->
+    <div class="modal action-modal hidden" id="actionModal">
+      <div class="action-card">
+        <div class="action-preview" id="actionPreview"></div>
+        <div class="action-btns">
+          <button type="button" data-act="reply"><span>↩</span>reply</button>
+          <button type="button" id="amCopy" data-act="copy"><span>⧉</span>copy</button>
+          <button type="button" data-act="react"><span>🙂</span>react</button>
+        </div>
+        <button type="button" class="action-cancel" data-act="close">cancel</button>
+      </div>
+    </div>
+
+    <!-- custom confirm dialog -->
+    <div class="modal hidden" id="confirmModal">
+      <div class="confirm-card">
+        <div class="confirm-title" id="confirmTitle">Are you sure?</div>
+        <div class="confirm-msg" id="confirmMsg"></div>
+        <div class="confirm-btns">
+          <button type="button" class="ghost" id="confirmCancel">cancel</button>
+          <button type="button" class="confirm-ok" id="confirmOk">confirm</button>
+        </div>
+      </div>
+    </div>
 
     <!-- verify modal -->
     <div class="modal hidden" id="verifyModal">
