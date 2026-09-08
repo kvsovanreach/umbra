@@ -199,10 +199,10 @@
 
       await step(`publishing public key → /users/${uuid}…`);
       try {
-        await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair), S.auth.uid());
+        await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair));
       } catch (ex) {
         if (/\b401\b|permission denied/i.test(ex.message)) {
-          return fail('key publish refused — this uuid may not be enabled, may already hold a different key (wrong secret?), or may be bound to another device. if you cleared browser data, ask the operator to reset /users/' + uuid + '.');
+          return fail('key publish refused — either this uuid is not enabled, or it already holds a different key (wrong secret?)');
         }
         throw ex;
       }

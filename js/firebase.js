@@ -58,10 +58,8 @@ window.FireDB = function (databaseURL, tokenProvider) {
   const childOf = (path) => path.split('/').filter(Boolean)[0];
 
   return {
-    // uid binds this identity to the device's stable anonymous auth.uid so the
-    // rules can verify who is writing. Omitted when auth is off (open rules).
-    publishPublicKey: (uuid, publicKey, uid) =>
-      _req('PUT', `users/${uuid}`, uid ? { publicKey, uid, updated: Date.now() } : { publicKey, updated: Date.now() }),
+    publishPublicKey: (uuid, publicKey) =>
+      _req('PUT', `users/${uuid}`, { publicKey, updated: Date.now() }),
 
     getPublicKey: async (uuid) => {
       const u = await _req('GET', `users/${uuid}`);

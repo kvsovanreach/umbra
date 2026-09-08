@@ -31,7 +31,7 @@ window.FIREBASE_CONFIG = {
     '  · the server only ever holds ciphertext + public keys + coarse metadata\n' +
     '    (who / when) — never plaintext, never your keys\n' +
     '  · conversation paths are hashes of BOTH uuids — nothing to enumerate\n' +
-    '  · public keys are write-once and bound to one device — no key to substitute',
+    '  · public keys are write-once — there is no key to substitute',
     st('#dfe7f2'));
   console.log('%cThis is a feature, not a bug. 🙂', st('#43e5a0', 700));
 
