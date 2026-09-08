@@ -6,7 +6,28 @@
   const $ = (id) => document.getElementById(id);
   const util = nacl.util;
   const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // time only for today, else prefix the date so yesterday ≠ today at a glance
+  const fmtTime = (ts) => {
+    const d = new Date(ts), now = new Date();
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return time;
+    const yst = new Date(now); yst.setDate(now.getDate() - 1);
+    if (d.toDateString() === yst.toDateString()) return 'Yesterday ' + time;
+    const opts = { month: 'short', day: 'numeric' };
+    if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString([], opts) + ', ' + time;
+  };
+  // full-day label for the in-thread date separators
+  const dayKey = (ts) => new Date(ts).toDateString();
+  const fmtDay = (ts) => {
+    const d = new Date(ts), now = new Date();
+    if (d.toDateString() === now.toDateString()) return 'Today';
+    const yst = new Date(now); yst.setDate(now.getDate() - 1);
+    if (d.toDateString() === yst.toDateString()) return 'Yesterday';
+    const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+    if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString([], opts);
+  };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const PAGE = 50;   // messages per page, initial and per "load older"
@@ -16,7 +37,8 @@
               peeking: new Set(), animate: new Set(), pendingImage: null, loaded: false,
               peerRead: 0, verified: false, typingThrottle: 0, typingTimer: null, readThrottle: 0,
               peerState: 'active', peerWatch: null,
-              dec: new Map(), oldestKey: null, hasMore: false, loadingMore: false };
+              dec: new Map(), oldestKey: null, hasMore: false, loadingMore: false,
+              reacts: new Map(), replying: null, reactTarget: null, cacheKey: null };
 
   // ---------- key fingerprint + identicon ----------
   function fpHex(pubB64) {
@@ -90,6 +112,7 @@
   function forgetIdentity() {
     try { sessionStorage.removeItem(SKEY); } catch (e) {}
     localStorage.removeItem(LKEY);
+    if (window.LocalCache) LocalCache.clearAll();   // don't leave another identity's history behind
   }
 
   const VIEWS = { login: $('login'), unlock: $('unlock'), chat: $('chat') };
@@ -141,6 +164,7 @@
       S.uuid = uuid; S.secret = secret; S.peer = peer;
       await step('deriving keypair · PBKDF2-250k · X25519…', 340);
       S.keypair = await CryptoBox.keypairFrom(uuid, secret);
+      S.cacheKey = CryptoBox.localKey(S.keypair.secretKey);   // seals the local history cache
 
       S.auth = FireAuth((window.FIREBASE_CONFIG || {}).apiKey);
       if (S.auth.enabled()) {
@@ -175,10 +199,10 @@
 
       await step(`publishing public key → /users/${uuid}…`);
       try {
-        await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair));
+        await S.db.publishPublicKey(uuid, CryptoBox.publicKeyB64(S.keypair), S.auth.uid());
       } catch (ex) {
         if (/\b401\b|permission denied/i.test(ex.message)) {
-          return fail('key publish refused — either this uuid is not enabled, or it already holds a different key (wrong secret?)');
+          return fail('key publish refused — this uuid may not be enabled, may already hold a different key (wrong secret?), or may be bound to another device. if you cleared browser data, ask the operator to reset /users/' + uuid + '.');
         }
         throw ex;
       }
@@ -263,28 +287,54 @@
     $('statusDot').classList.add('on');
     S.msgs.clear(); S.dec.clear(); S.loaded = false; S.peerRead = 0;
     S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
+    S.reacts.clear(); cancelReply(); hideEmojiBar();
     $('messages').innerHTML = '<div class="sys">◇ loading encrypted history…</div>';
 
     S.es = S.db.stream(S.cid, {
       onMessage: (id, m) => {
         const isNew = !S.msgs.has(id);
         S.msgs.set(id, m);
+        if (isNew) LocalCache.put(S.cid, [m], S.cacheKey);
         if (isNew && S.loaded && m.from !== S.uuid) S.animate.add(id);
         render();
       },
       onTyping: (uuid, ts) => { if (uuid === S.peer) showTyping(ts); },
       onRead: (uuid, ts) => { if (uuid === S.peer) { S.peerRead = Math.max(S.peerRead, ts || 0); render(); } },
+      onReaction: (mid, uuid, val) => {
+        let m = S.reacts.get(mid);
+        if (val == null) { if (m) { m.delete(uuid); if (!m.size) S.reacts.delete(mid); } render(); return; }
+        const env = CryptoBox.decryptEnvelope(val, S.keypair.secretKey, S.peerPub);
+        if (!env || env.t !== 'r' || !env.e) return;
+        if (!m) { m = new Map(); S.reacts.set(mid, m); }
+        m.set(uuid, env.e); render();
+      },
     }, (up) => {
       $('statusDot').classList.toggle('on', up);
       $('statusText').textContent = up ? 'live' : 'offline';   // the dot alone read as connected
     }, PAGE);
 
+    // instant paint from the encrypted local cache (also works fully offline),
+    // then reconcile with the network below
+    LocalCache.get(S.cid, S.cacheKey).then((cached) => {
+      let added = 0;
+      cached.forEach((m) => { if (!S.msgs.has(m.id)) { S.msgs.set(m.id, m); added++; } });
+      if (added) { S.loaded = true; recomputeOldest(); render({ toBottom: true }); }
+    }).catch(() => {});
+
     S.db.getMessages(S.cid, PAGE).then((list) => {
       list.forEach((m) => S.msgs.set(m.id, m));
-      S.oldestKey = list.length ? list[0].id : null;
+      LocalCache.put(S.cid, list, S.cacheKey);
+      recomputeOldest();
       S.hasMore = list.length >= PAGE;   // a full page suggests there is more behind it
       S.loaded = true; render({ toBottom: true });
     }).catch(() => { S.loaded = true; render({ toBottom: true }); });
+  }
+
+  // oldest push-id we currently hold — the paging cursor for "load older"
+  function recomputeOldest() {
+    let min = null;
+    S.msgs.forEach((_, id) => { if (min === null || id < min) min = id; });
+    S.oldestKey = min;
   }
 
   // ---------- peer access notice ----------
@@ -364,7 +414,9 @@
     const wasNearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const prevH = box.scrollHeight, prevTop = box.scrollTop;
 
-    const items = [...S.msgs.entries()].sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0));
+    // order by Firebase push id (the map key), which is chronological by SERVER
+    // time — sorting by the sender's `ts` would flip order under clock skew
+    const items = [...S.msgs.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const more = S.hasMore
       ? `<button type="button" class="load-more" id="loadMore"${S.loadingMore ? ' disabled' : ''}>` +
         `${S.loadingMore ? 'loading…' : `↑ load ${PAGE} older messages`}</button>`
@@ -374,8 +426,11 @@
       return;
     }
     S.view.clear();
-    box.innerHTML = more + items.map(([id, m]) => {
+    box.innerHTML = more + items.map(([id, m], i) => {
       const mine = m.from === S.uuid;
+      // date divider whenever the day changes (and at the top of the thread)
+      const sep = m.ts && (i === 0 || dayKey(items[i - 1][1].ts) !== dayKey(m.ts))
+        ? `<div class="day-sep"><span>${esc(fmtDay(m.ts))}</span></div>` : '';
       // decryption is the expensive part of a render, and a message never
       // changes once written — so open each one only the first time we see it
       let env = S.dec.get(id);
@@ -385,14 +440,23 @@
       const time = m.ts ? `<span class="time">${fmtTime(m.ts)}${status}</span>` : '';
       const cipherStr = ((m.n || '') + (m.c || '')).slice(0, 120) + '…';
       const cipherHTML = `<div class="cipher"><span class="lbl">CIPHERTEXT · nonce+box (b64)</span>${esc(cipherStr)}</div>${time}`;
-      let plainHTML;
+      const quote = env && env.re
+        ? `<div class="quote" data-goto="${esc(env.re.id || '')}"><span class="q-who">${env.re.from === S.uuid ? 'you' : esc(shortPeer())}</span><span class="q-text">${esc(env.re.preview || '')}</span></div>`
+        : '';
+      let bodyHTML = null, plainHTML;
       if (!env) plainHTML = `🔒 unable to decrypt${time}`;
-      else if (env.t === 'image') plainHTML = `<img src="data:${esc(env.mime || 'image/jpeg')};base64,${env.body}"/>${time}`;
-      else plainHTML = `<span class="body">${esc(env.body || '')}</span>${time}`;
-      S.view.set(id, { plain: plainHTML, cipher: cipherHTML, text: env && env.t === 'text' ? env.body : null });
+      else if (env.t === 'image') plainHTML = `${quote}<img src="data:${esc(env.mime || 'image/jpeg')};base64,${env.body}"/>${time}`;
+      else { bodyHTML = linkify(esc(env.body || '')); plainHTML = `${quote}<span class="body">${bodyHTML}</span>${time}`; }
+      S.view.set(id, { plain: plainHTML, cipher: cipherHTML,
+        text: env && env.t === 'text' ? env.body : null, html: bodyHTML });
       const cls = 'msg ' + (mine ? 'out' : 'in') + (env ? '' : ' bad');
-      const show = S.peeking.has(id) ? cipherHTML : plainHTML;
-      return `<div class="${cls}" data-id="${id}">${show}</div>`;
+      const show = plainHTML;
+      const acts = env ? '<div class="msg-actions">'
+        + '<button type="button" class="ma" data-act="reply" title="reply">↩</button>'
+        + (env.t === 'text' ? '<button type="button" class="ma" data-act="copy" title="copy">⧉</button>' : '')
+        + '<button type="button" class="ma" data-act="react" title="react">🙂</button>'
+        + '</div>' : '';
+      return `${sep}<div class="${cls}" data-id="${id}">${show}${reactionChips(id)}${acts}</div>`;
     }).join('');
 
     // Prepending older messages must not move the reader, and an arriving
@@ -406,7 +470,7 @@
       const v = S.view.get(id);
       if (!v || !v.text) return;
       const el = box.querySelector(`[data-id="${id}"] .body`);
-      if (el) scramble(el, v.text);
+      if (el) scramble(el, v.text, v.html);
     });
     S.animate.clear();
     maybeMarkRead();
@@ -418,7 +482,8 @@
     try {
       const older = await S.db.getMessagesBefore(S.cid, S.oldestKey, PAGE);
       older.forEach((m) => S.msgs.set(m.id, m));
-      if (older.length) S.oldestKey = older[0].id;
+      LocalCache.put(S.cid, older, S.cacheKey);
+      recomputeOldest();
       S.hasMore = older.length >= PAGE;
     } catch (ex) {
       S.hasMore = true;   // leave the control up so it can be retried
@@ -453,19 +518,75 @@
     S.shareStatus = e.target.checked;
     localStorage.setItem('aiclab-share-status', S.shareStatus ? '1' : '0');
   });
-  $('settingsBtn').addEventListener('click', (e) => { e.stopPropagation(); $('settingsPop').classList.toggle('hidden'); });
-  document.addEventListener('click', (e) => { if (!e.target.closest('.settings-wrap')) $('settingsPop').classList.add('hidden'); });
-
-  // click a message to toggle ciphertext view
-  $('messages').addEventListener('click', (e) => {
-    if (e.target.id === 'loadMore') { loadOlder(); return; }
-    const el = e.target.closest('.msg'); if (!el) return;
-    const id = el.dataset.id; const v = S.view.get(id); if (!v) return;
-    if (S.peeking.has(id)) { S.peeking.delete(id); el.innerHTML = v.plain; }
-    else { S.peeking.add(id); el.innerHTML = v.cipher; }
+  // two header popovers (privacy + appearance) — opening one closes the other,
+  // and a click anywhere outside closes both
+  $('settingsBtn').addEventListener('click', (e) => { e.stopPropagation(); $('themePop').classList.add('hidden'); $('settingsPop').classList.toggle('hidden'); });
+  $('themeBtn').addEventListener('click', (e) => { e.stopPropagation(); $('settingsPop').classList.add('hidden'); $('themePop').classList.toggle('hidden'); });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.settings-wrap')) { $('settingsPop').classList.add('hidden'); $('themePop').classList.add('hidden'); }
   });
 
-  function scramble(el, finalText) {
+  // ---------- appearance / theme ----------
+  // data-theme on <html> is set pre-paint by the inline head script; this keeps
+  // the picker in sync, persists changes, and repaints the mobile chrome color.
+  const THEMES = ['default', 'turquoise', 'indigo', 'teal', 'lavender', 'light', 'dark'];
+  const THEME_META = { light: '#eef1f7', dark: '#000000' };   // others share the dark chrome
+  function applyTheme(name) {
+    if (!THEMES.includes(name)) name = 'default';
+    const root = document.documentElement;
+    if (name === 'default') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', name);
+    try { localStorage.setItem('umbra-theme', name); } catch (e) {}
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', THEME_META[name] || '#07090e');
+    document.querySelectorAll('#themeGrid .swatch').forEach((b) =>
+      b.classList.toggle('active', b.dataset.theme === name));
+  }
+  $('themeGrid').addEventListener('click', (e) => {
+    const b = e.target.closest('.swatch');
+    if (b) applyTheme(b.dataset.theme);
+  });
+  (function () { try { applyTheme(localStorage.getItem('umbra-theme') || 'default'); } catch (e) { applyTheme('default'); } })();
+
+  // one delegated handler for the whole thread: load-more, links, reactions,
+  // per-message actions, quote-jumps, and finally click-to-peek-ciphertext
+  // one delegated handler: load-more, links, reactions, per-message actions,
+  // quote-jumps, and finally click-to-peek-ciphertext on the bubble body
+  $('messages').addEventListener('click', (e) => {
+    if (e.target.id === 'loadMore') { loadOlder(); return; }
+    if (e.target.closest('a')) return;                        // let links open
+    const chip = e.target.closest('.react-chip');
+    if (chip) { const el = chip.closest('.msg'); if (el) toggleReaction(el.dataset.id, chip.dataset.react); return; }
+    const act = e.target.closest('.ma');
+    if (act) {
+      const el = act.closest('.msg'); if (!el) return;
+      const id = el.dataset.id, a = act.dataset.act;
+      if (a === 'reply') startReply(id);
+      else if (a === 'copy') copyMessage(id, act);
+      else if (a === 'react') openEmojiBar(id, act);
+      return;
+    }
+    const q = e.target.closest('.quote');
+    if (q) { gotoMessage(q.dataset.goto); return; }
+    // image → full-screen viewer; plain text → do nothing
+    if (e.target.tagName === 'IMG' && e.target.closest('.msg')) openLightbox(e.target.src);
+  });
+
+  // ---------- image lightbox ----------
+  function openLightbox(src) {
+    const lb = $('lightbox');
+    lb.innerHTML = '';
+    const img = new Image(); img.src = src; img.alt = '';
+    lb.appendChild(img);
+    lb.classList.remove('hidden');
+  }
+  function closeLightbox() { const lb = $('lightbox'); lb.classList.add('hidden'); lb.innerHTML = ''; }
+  $('lightbox').addEventListener('click', closeLightbox);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('lightbox').classList.contains('hidden')) closeLightbox();
+  });
+
+  function scramble(el, finalText, finalHtml) {
     const pool = '!<>-_\\/[]{}=+*^?#________01', chars = [...finalText];
     let frame = 0; const total = chars.length + 14;
     const timer = setInterval(() => {
@@ -474,9 +595,109 @@
         if (c === ' ') return ' ';
         return pool[Math.floor(Math.random() * pool.length)];
       }).join('');
-      if (frame++ >= total) { clearInterval(timer); el.textContent = finalText; }
+      // restore the real markup (linkified) once the reveal finishes
+      if (frame++ >= total) { clearInterval(timer); if (finalHtml != null) el.innerHTML = finalHtml; else el.textContent = finalText; }
     }, 28);
   }
+
+  // ---------- links ----------
+  // The text is already HTML-escaped by the caller; we only wrap bare http(s)
+  // URLs in anchors. Previews are NEVER fetched — that would leak to a third
+  // party and break the zero-knowledge promise.
+  function linkify(escaped) {
+    return escaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => {
+      let tail = '';
+      const m = url.match(/(&amp;|[)\].,!?:;'"]+)$/);
+      if (m) { tail = m[0]; url = url.slice(0, -tail.length); }
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer nofollow">${url}</a>${tail}`;
+    });
+  }
+  const shortPeer = () => (S.peer && S.peer.length > 12 ? S.peer.slice(0, 8) + '…' : (S.peer || 'peer'));
+
+  // ---------- reply ----------
+  function startReply(id) {
+    const env = S.dec.get(id), m = S.msgs.get(id);
+    if (!env || !m) return;
+    const preview = env.t === 'image' ? '📷 image' : (env.body || '').slice(0, 140);
+    S.replying = { id, from: m.from, preview };
+    $('replyWho').textContent = m.from === S.uuid ? 'you' : shortPeer();
+    $('replyText').textContent = preview;
+    $('replyBar').classList.remove('hidden');
+    $('msgInput').focus();
+  }
+  function cancelReply() { S.replying = null; const b = $('replyBar'); if (b) b.classList.add('hidden'); }
+  function replyRef() { return S.replying ? { id: S.replying.id, from: S.replying.from, preview: S.replying.preview } : null; }
+  $('replyCancel').addEventListener('click', cancelReply);
+
+  // ---------- copy ----------
+  function copyMessage(id, btn) {
+    const v = S.view.get(id);
+    if (!v || v.text == null) return;
+    const done = () => { if (btn) { btn.textContent = '✓'; setTimeout(() => { btn.textContent = '⧉'; }, 1000); } };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(v.text).then(done).catch(() => {});
+    else { try { const ta = document.createElement('textarea'); ta.value = v.text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); } catch (e) {} }
+  }
+
+  // ---------- jump to a quoted message ----------
+  function gotoMessage(id) {
+    const el = $('messages').querySelector(`.msg[data-id="${id}"]`);
+    if (!el) return;   // may be paged out of the current window
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1200);
+  }
+
+  // ---------- reactions ----------
+  // Encrypted like messages: the datastore stores {n,c}, never the emoji itself.
+  const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉'];
+  function reactionChips(mid) {
+    const m = S.reacts.get(mid);
+    if (!m || !m.size) return '';
+    const agg = new Map();
+    m.forEach((emoji, uuid) => {
+      const e = agg.get(emoji) || { count: 0, mine: false };
+      e.count++; if (uuid === S.uuid) e.mine = true; agg.set(emoji, e);
+    });
+    return '<div class="reacts">' + [...agg.entries()].map(([emoji, e]) =>
+      `<button type="button" class="react-chip${e.mine ? ' mine' : ''}" data-react="${emoji}">${emoji}${e.count > 1 ? `<i>${e.count}</i>` : ''}</button>`).join('') + '</div>';
+  }
+  function toggleReaction(mid, emoji) {
+    if (!S.peerPub || !S.keypair) return;
+    let m = S.reacts.get(mid);
+    const cur = m && m.get(S.uuid);
+    if (cur === emoji) {                       // tap your own reaction to remove it
+      if (m) { m.delete(S.uuid); if (!m.size) S.reacts.delete(mid); }
+      render();
+      S.db.removeReaction(S.cid, mid, S.uuid).catch(() => {});
+    } else {
+      if (!m) { m = new Map(); S.reacts.set(mid, m); }
+      m.set(S.uuid, emoji);
+      render();
+      const payload = CryptoBox.encryptEnvelope({ t: 'r', e: emoji }, S.keypair.secretKey, S.peerPub);
+      S.db.setReaction(S.cid, mid, S.uuid, payload).catch(() => {});
+    }
+  }
+  function openEmojiBar(mid, btn) {
+    const bar = $('emojiBar');
+    bar.innerHTML = EMOJIS.map((e) => `<button type="button" data-emoji="${e}">${e}</button>`).join('');
+    bar.classList.remove('hidden');
+    S.reactTarget = mid;
+    const r = btn.getBoundingClientRect();
+    let left = r.left + r.width / 2 - bar.offsetWidth / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - bar.offsetWidth - 8));
+    let top = r.top - bar.offsetHeight - 8;
+    if (top < 8) top = r.bottom + 8;             // flip below if no room above
+    bar.style.left = left + 'px'; bar.style.top = top + 'px';
+  }
+  function hideEmojiBar() { const b = $('emojiBar'); if (b) b.classList.add('hidden'); S.reactTarget = null; }
+  $('emojiBar').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (S.reactTarget) toggleReaction(S.reactTarget, b.dataset.emoji);
+    hideEmojiBar();
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#emojiBar') && !e.target.closest('[data-act="react"]')) hideEmojiBar();
+  });
 
   async function send(envelope) {
     const payload = CryptoBox.encryptEnvelope(envelope, S.keypair.secretKey, S.peerPub);
@@ -486,19 +707,33 @@
 
   $('composer').addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (S.pendingImage) { const img = S.pendingImage; clearPreview(); await send(img).catch((ex) => alert('send failed: ' + ex.message)); return; }
+    const re = replyRef();
+    if (S.pendingImage) {
+      const img = re ? { ...S.pendingImage, re } : S.pendingImage;
+      clearPreview(); cancelReply();
+      await send(img).catch((ex) => alert('send failed: ' + ex.message));
+      return;
+    }
     const input = $('msgInput'), text = input.value.trim();
     if (!text) return;
     input.value = '';
     S.typingThrottle = 0; if (S.shareStatus) S.db.setTyping(S.cid, S.uuid, 0).catch(() => {}); // stop "typing…"
-    try { await send({ t: 'text', body: text }); }
+    cancelReply();
+    try { await send(re ? { t: 'text', body: text, re } : { t: 'text', body: text }); }
     catch (ex) { input.value = text; alert('send failed: ' + ex.message); }
   });
 
   // ---------- images ----------
   $('attach').addEventListener('click', () => $('fileInput').click());
-  $('fileInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  $('fileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    stageImage(file);
+  });
+
+  // shared by the file picker and clipboard paste — downscale, then stage a
+  // preview that is only encrypted + sent on submit
+  async function stageImage(file) {
+    if (!file || !/^image\//.test(file.type)) return;
     try {
       const { base64, mime } = await downscaleImage(file, 1024, 0.8);
       S.pendingImage = { t: 'image', mime, body: base64 };
@@ -506,6 +741,19 @@
       $('imgPreview').innerHTML = `<img src="data:${mime};base64,${base64}"/><span class="lbl">image ready · will be encrypted on send</span><button id="cancelImg">cancel</button>`;
       $('cancelImg').addEventListener('click', clearPreview);
     } catch (ex) { alert('image error: ' + ex.message); }
+  }
+
+  // paste an image from the clipboard (screenshots, copied images). Text pastes
+  // fall through untouched; only an image item is intercepted.
+  document.addEventListener('paste', (e) => {
+    if (VIEWS.chat.classList.contains('hidden')) return;      // only in chat
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const it of items) {
+      if (it.kind === 'file' && /^image\//.test(it.type)) {
+        const file = it.getAsFile();
+        if (file) { e.preventDefault(); stageImage(file); return; }
+      }
+    }
   });
   function clearPreview() { S.pendingImage = null; $('imgPreview').classList.add('hidden'); $('imgPreview').innerHTML = ''; }
   function downscaleImage(file, maxDim, quality) {
@@ -579,8 +827,9 @@
     clearInterval(S.peerWatch); S.peerWatch = null;
     disarmIdle();
     S.peerState = 'active'; $('peerAlert').classList.add('hidden'); $('peerAlert').innerHTML = '';
-    S.secret = null; S.keypair = null; S.peerPub = null;
+    S.secret = null; S.keypair = null; S.peerPub = null; S.cacheKey = null;
     S.msgs.clear(); S.view.clear(); S.peeking.clear(); S.dec.clear();
+    S.reacts.clear(); cancelReply(); hideEmojiBar();
     S.oldestKey = null; S.hasMore = false; S.loadingMore = false;
     $('messages').innerHTML = '';
     $('msgInput').value = ''; clearPreview();

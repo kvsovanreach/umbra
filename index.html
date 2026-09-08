@@ -27,6 +27,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
+  <script>
+    // Apply the saved accent/light theme before first paint, so switching
+    // views (login → chat) and reloads never flash the default palette.
+    try {
+      var t = localStorage.getItem('umbra-theme');
+      if (t && t !== 'default') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <!-- ===== login ===== -->
@@ -118,7 +126,22 @@
       <div class="head-actions">
         <span class="status-dot" id="statusDot"><i></i><span id="statusText">live</span></span>
         <div class="settings-wrap">
-          <button type="button" class="ghost" id="settingsBtn" title="privacy settings">⚙</button>
+          <button type="button" class="hbtn" id="themeBtn" title="appearance">🎨</button>
+          <div class="popover hidden" id="themePop">
+            <div class="pop-head">APPEARANCE</div>
+            <div class="theme-grid" id="themeGrid">
+              <button type="button" class="swatch" data-theme="default"><span class="chip t-default"></span><span class="nm">cyan</span></button>
+              <button type="button" class="swatch" data-theme="turquoise"><span class="chip t-turquoise"></span><span class="nm">turq</span></button>
+              <button type="button" class="swatch" data-theme="indigo"><span class="chip t-indigo"></span><span class="nm">indigo</span></button>
+              <button type="button" class="swatch" data-theme="teal"><span class="chip t-teal"></span><span class="nm">teal</span></button>
+              <button type="button" class="swatch" data-theme="lavender"><span class="chip t-lavender"></span><span class="nm">lav</span></button>
+              <button type="button" class="swatch" data-theme="light"><span class="chip t-light"></span><span class="nm">light</span></button>
+              <button type="button" class="swatch" data-theme="dark"><span class="chip t-dark"></span><span class="nm">dark</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-wrap">
+          <button type="button" class="hbtn" id="settingsBtn" title="privacy settings">⚙</button>
           <div class="popover hidden" id="settingsPop">
             <div class="pop-head">PRIVACY</div>
             <label class="pop-row">
@@ -128,7 +151,7 @@
             <div class="pop-note">off = you stop broadcasting both. controls only what <b>you</b> reveal.</div>
           </div>
         </div>
-        <button type="button" class="ghost" id="logout">leave</button>
+        <button type="button" class="hbtn danger" id="logout" title="log out" aria-label="log out">⏻</button>
       </div>
     </header>
 
@@ -136,7 +159,7 @@
       <span><b>cipher</b> XSalsa20-Poly1305</span>
       <span><b>kex</b> X25519 ECDH</span>
       <span><b>you</b> <em id="meId">····</em> <em id="meFp">····</em></span>
-      <span class="tip">tip: click any message to reveal its ciphertext</span>
+      <span class="tip">tip: tap an image to view it full-screen</span>
     </div>
 
     <div class="peer-alert hidden" id="peerAlert"></div>
@@ -145,14 +168,20 @@
 
     <div class="typing hidden" id="typing"><span class="dots"><i></i><i></i><i></i></span><em id="typingName">peer</em> is typing</div>
 
+    <div class="reply-bar hidden" id="replyBar">
+      <div class="rb-body"><div class="rb-who" id="replyWho"></div><div class="rb-text" id="replyText"></div></div>
+      <button type="button" class="rb-x" id="replyCancel" aria-label="cancel reply">✕</button>
+    </div>
+
     <form class="composer" id="composer">
-      <span class="lockhint">🔒</span>
       <button type="button" class="icon" id="attach" title="send encrypted image">🖼️</button>
       <input type="file" id="fileInput" accept="image/*" hidden />
       <input type="text" id="msgInput" placeholder="type — encrypted before it leaves this device…" autocomplete="off" />
       <button type="submit" class="send" aria-label="send">↑</button>
     </form>
     <div class="img-preview hidden" id="imgPreview"></div>
+    <div class="emoji-bar hidden" id="emojiBar"></div>
+    <div class="lightbox hidden" id="lightbox"></div>
 
     <!-- verify modal -->
     <div class="modal hidden" id="verifyModal">
@@ -175,6 +204,7 @@
   <script src="lib/nacl-util.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/crypto.js"></script>
+  <script src="js/cache.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/firebase.js"></script>
   <script src="js/app.js"></script>

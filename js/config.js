@@ -22,14 +22,16 @@ window.FIREBASE_CONFIG = {
   console.log('%c◐ umbra::e2e', big);
   console.log('%cYou found the API key. Congratulations — go ahead and take it.\nScreenshot it. Post it. We\'ll wait.', st('#ffcf6b', 700));
   console.log(
-    '%cIt is an identifier, not a credential. It cannot read the database, cannot\n' +
-    'bypass a single security rule, and cannot decrypt one byte of anything.\n\n' +
+    '%cIt is an identifier, not a credential. At most it mints an anonymous token —\n' +
+    'which still cannot decrypt a byte, cannot bypass a rule, and cannot read a\n' +
+    'thing without already knowing a conversation id (a hash of BOTH uuids).\n\n' +
     '  · messages are sealed in your browser — X25519 ECDH + XSalsa20-Poly1305\n' +
     '  · the key comes from a passphrase — PBKDF2-SHA256, 250,000 iterations\n' +
     '  · that passphrase is never stored, never transmitted, never leaves the device\n' +
-    '  · the server only ever holds { from, to, ts, nonce, ciphertext }\n' +
+    '  · the server only ever holds ciphertext + public keys + coarse metadata\n' +
+    '    (who / when) — never plaintext, never your keys\n' +
     '  · conversation paths are hashes of BOTH uuids — nothing to enumerate\n' +
-    '  · public keys are write-once — there is no key to substitute',
+    '  · public keys are write-once and bound to one device — no key to substitute',
     st('#dfe7f2'));
   console.log('%cThis is a feature, not a bug. 🙂', st('#43e5a0', 700));
 
@@ -45,6 +47,6 @@ window.FIREBASE_CONFIG = {
       st('#7d8ba6'));
   } catch (e) { /* nacl not loaded — no challenge, no harm */ }
 
-  console.log('%cOpen it and you\'ve broken Curve25519. Please publish a paper, don\'t DM me. 🏆', st('#a48bff', 700));
+  console.log('%cOpen it and you\'ve broken XSalsa20-Poly1305 (a 256-bit key you were never given). Please publish a paper, don\'t DM me. 🏆', st('#a48bff', 700));
   console.log('%csource: https://github.com/kvsovanreach/umbra', st('#4a5468'));
 })();

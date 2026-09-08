@@ -31,7 +31,7 @@ window.FireDB = function (databaseURL, tokenProvider) {
     : Object.keys(map).sort().map((id) => Object.assign({ id }, map[id]));
 
   // one reconnecting EventSource; `route(path, data)` receives each put/patch
-  function _es(path, query, route, onState) {
+  function _es(path, query, route, onState, passNull) {
     let es = null, closed = false, retry = 0;
     const open = () => {
       if (closed) return;
@@ -39,9 +39,11 @@ window.FireDB = function (databaseURL, tokenProvider) {
       const handle = (e) => {
         retry = 0; if (onState) onState(true);
         let p; try { p = JSON.parse(e.data); } catch (_) { return; }
-        // null data means a removal — e.g. the limitToLast window sliding past an
-        // older message. We keep what we already have, so there is nothing to do.
-        if (!p || p.data == null) return;
+        // null data usually means a removal — e.g. the limitToLast window sliding
+        // past an old message, which we ignore. Reactions, however, are genuinely
+        // deletable (un-react), so that stream opts in to null via passNull.
+        if (!p) return;
+        if (p.data == null && !passNull) return;
         route(p.path, p.data);
       };
       es.addEventListener('put', handle);
@@ -56,8 +58,10 @@ window.FireDB = function (databaseURL, tokenProvider) {
   const childOf = (path) => path.split('/').filter(Boolean)[0];
 
   return {
-    publishPublicKey: (uuid, publicKey) =>
-      _req('PUT', `users/${uuid}`, { publicKey, updated: Date.now() }),
+    // uid binds this identity to the device's stable anonymous auth.uid so the
+    // rules can verify who is writing. Omitted when auth is off (open rules).
+    publishPublicKey: (uuid, publicKey, uid) =>
+      _req('PUT', `users/${uuid}`, uid ? { publicKey, uid, updated: Date.now() } : { publicKey, updated: Date.now() }),
 
     getPublicKey: async (uuid) => {
       const u = await _req('GET', `users/${uuid}`);
@@ -89,6 +93,9 @@ window.FireDB = function (databaseURL, tokenProvider) {
     sendMessage: (cid, msg) => _req('POST', `conversations/${cid}/messages`, msg),
     setTyping: (cid, uuid, ts) => _req('PUT', `conversations/${cid}/typing/${uuid}`, ts),
     setRead: (cid, uuid, ts) => _req('PUT', `conversations/${cid}/read/${uuid}`, ts),
+    // reaction values are encrypted envelopes {n,c} — the server never sees which emoji
+    setReaction: (cid, mid, uuid, val) => _req('PUT', `conversations/${cid}/reactions/${mid}/${uuid}`, val),
+    removeReaction: (cid, mid, uuid) => _req('DELETE', `conversations/${cid}/reactions/${mid}/${uuid}`),
 
     // newest page — the last `limit` messages, oldest-first
     getMessages: async (cid, limit) =>
@@ -128,6 +135,15 @@ window.FireDB = function (databaseURL, tokenProvider) {
           const u = childOf(path);
           if (u) h.onRead(u, data); else eachMap(data, h.onRead);
         }),
+        // reactions are two levels deep (mid/uuid) and can be removed, so this
+        // stream opts into null data (passNull) to propagate un-reacts live
+        _es(`conversations/${cid}/reactions`, '', (path, data) => {
+          if (!h.onReaction) return;
+          const parts = path.split('/').filter(Boolean);   // [] | [mid] | [mid,uuid]
+          if (parts.length >= 2) h.onReaction(parts[0], parts[1], data);
+          else if (parts.length === 1) eachMap(data, (u, v) => h.onReaction(parts[0], u, v));
+          else if (data) Object.keys(data).forEach((mid) => eachMap(data[mid], (u, v) => h.onReaction(mid, u, v)));
+        }, null, true),
       ];
       return { close: () => subs.forEach((s) => s.close()) };
     },

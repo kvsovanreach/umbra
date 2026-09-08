@@ -75,5 +75,23 @@ window.CryptoBox = (function () {
     return groups; // 12 groups of 5 digits
   }
 
-  return { keypairFrom, publicKeyB64, encryptEnvelope, decryptEnvelope, conversationId, safetyNumber };
+  // ---- local-at-rest cache crypto (nacl.secretbox) ----
+  // A symmetric key derived from your in-memory secret key, used to seal the
+  // history cache in IndexedDB. Nothing is readable at rest without re-deriving
+  // the keypair from the passphrase.
+  function localKey(secretKey) { return nacl.hash(secretKey).slice(0, nacl.secretbox.keyLength); }
+  function sealLocal(obj, key) {
+    const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
+    const box = nacl.secretbox(util.decodeUTF8(JSON.stringify(obj)), nonce, key);
+    return { cn: util.encodeBase64(nonce), cc: util.encodeBase64(box) };
+  }
+  function openLocal(payload, key) {
+    try {
+      const opened = nacl.secretbox.open(util.decodeBase64(payload.cc), util.decodeBase64(payload.cn), key);
+      return opened ? JSON.parse(util.encodeUTF8(opened)) : null;
+    } catch (e) { return null; }
+  }
+
+  return { keypairFrom, publicKeyB64, encryptEnvelope, decryptEnvelope, conversationId, safetyNumber,
+           localKey, sealLocal, openLocal };
 })();
